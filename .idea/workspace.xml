@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="bfb1aa38-49d7-41a5-8b2c-1865c2f37cdc" name="Changes" comment="" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Class" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="master" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+    <option name="RESET_MODE" value="HARD" />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.0003966701833984" />
+      <entry key="MS500" value="1.245018844060387" />
+      <entry key="S2" value="2.1122879645355317" />
+      <entry key="S5" value="2.5726758990197967" />
+      <entry key="S10" value="2.7718197755835265" />
+      <entry key="S30" value="2.926671959129921" />
+      <entry key="S60" value="3.038706889860518" />
+      <entry key="M2" value="3.2607341693942478" />
+      <entry key="M5" value="3.593692981611694" />
+      <entry key="M10" value="3.7717015723778764" />
+      <entry key="M15" value="3.8415706757527697" />
+      <entry key="M30" value="3.91749200605045" />
+      <entry key="H1" value="3.95788747111787" />
+      <entry key="H2" value="3.9787245380797636" />
+      <entry key="H4" value="3.9893068884882625" />
+      <entry key="D1" value="3.9982100731742647" />
+      <entry key="W1" value="3.999744105924997" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="0.6739111751113213" />
+      <entry key="MS500" value="1.1251878630741983" />
+      <entry key="S2" value="1.905032615750062" />
+      <entry key="S5" value="2.424255223669725" />
+      <entry key="S10" value="2.6809922733922202" />
+      <entry key="S30" value="2.891642397588191" />
+      <entry key="S60" value="3.0186647930784045" />
+      <entry key="M2" value="3.247866852691391" />
+      <entry key="M5" value="3.5867905545239815" />
+      <entry key="M10" value="3.7677772444418545" />
+      <entry key="M15" value="3.8388303735043605" />
+      <entry key="M30" value="3.9160543656428635" />
+      <entry key="H1" value="3.9571506824329976" />
+      <entry key="H2" value="3.978351507663904" />
+      <entry key="H4" value="3.9891191958169907" />
+      <entry key="D1" value="3.998178625938869" />
+      <entry key="W1" value="3.9997396093981177" />
+    </decayedShown>
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "git-widget-placeholder": "master",
+    "node.js.selected.package.tslint": "(autodetect)"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <servers />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="HEAD" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>
