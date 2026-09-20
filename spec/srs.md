@@ -1,7 +1,7 @@
 # Software Requirements Specification (SRS)
 ## Beer Consumption Tracking and Personal Catalog System
 
-**Document Version:** 1.0  
+**Document Version:** 1.1  
 **Status:** Approved  
 **Standard:** IEEE Std 830-1998 Compliant  
 **Date:** September 20, 2026  
@@ -41,53 +41,54 @@ This specification serves as the binding contract for system architects, softwar
 
 ### 1.2. System Scope Boundaries (In-Scope / Out-of-Scope)
 
-To prevent scope creep and ensure deterministic architectural boundaries, the boundaries of Version 1.0 are explicitly partitioned into In-Scope and Out-of-Scope capabilities.
+To prevent scope creep and ensure deterministic architectural boundaries, the capabilities of Version 1.1 are explicitly partitioned into In-Scope and Out-of-Scope boundaries.
 
 #### 1.2.1. In-Scope (Committed Capabilities)
 1. **User Identity & Sybil Defense:**
    * User authentication via JSON Web Tokens (JWT).
-   * Registration throttling (IP rate-limiting) and proof-of-work/email verification to prevent bot farm proliferation.
-   * Account maturity gating (minimum account age of 48 hours AND at least 1 confirmed consumption event) required before granting catalog editing and consensus voting privileges.
+   * Registration throttling (IP rate-limiting) and CAPTCHA / email verification to prevent bot farm proliferation.
+   * Account maturity gating (minimum account age of 48 hours AND at least 1 confirmed `ConsumptionEvent`) required before granting catalog editing and consensus voting privileges.
    * Daily submission rate-limiting (maximum of 5 new product creation requests per user per 24 hours).
 2. **Crowdsourced Catalog & Dual-Version Lifecycle:**
    * Global wiki-style beer catalog with community contributions.
-   * Dual-version concurrency: a product record maintains at most two active states simultaneously (exactly one `Verified` version and at most one pending `Draft` version).
+   * Dual-version concurrency: a product record maintains at most two active states simultaneously (exactly one `VerifiedVersion` and at most one pending `DraftVersion`).
    * User catalog presentation toggle: switch between "Latest (Draft/Unverified)" (default) and "Verified Only".
-   * Consensus voting engine: 10 Upvotes elevate a `Draft` to `Verified`; 5 Downvotes reject a `Draft`.
+   * Consensus voting engine: 10 `UPVOTE` votes elevate a `DraftVersion` to `VerifiedVersion`; 5 `DOWNVOTE` votes reject a `DraftVersion`.
    * Conflict & author voting rules: authors cannot vote on their own submissions; maximum 1 vote per user per draft version.
-   * Rejection handling: rejecting an edit reverts to the active `Verified` baseline; rejecting a brand-new submission transitions it to `Untrusted` (hidden from global search, preserved for existing loggers).
+   * Concurrency race resolution: pessimistic row locking (`SELECT FOR UPDATE`) enforces First-Commit Wins.
+   * Rejection handling: rejecting an edit reverts to the active `VerifiedVersion` baseline; rejecting a brand-new submission transitions it to `Untrusted` (hidden from global search, preserved for existing loggers).
    * Author anonymity: creator user IDs are preserved in internal audit tables for security inspection, but are strictly redacted from public APIs and UI views.
-   * Administrative purge with Tombstone substitution: deleting malicious/spam products replaces references with a standardized placeholder (`[Deleted / Unknown Product]`) to preserve referential integrity in consumption histories.
+   * Administrative purge with Tombstone substitution: deleting fraudulent products invokes a privileged stored procedure (`SECURITY DEFINER`) to replace references with a standardized placeholder (`[Deleted / Unknown Product]`), maintaining consumption immutability for standard application connection pools.
 3. **Deduplication & Product Normalization:**
    * Hard duplicate rejection via barcode uniqueness (EAN-13, UPC).
    * Normalized compound key validation: `lowercase(trim(name)) + lowercase(trim(brewery)) + serving_type`.
-   * Multi-packaging support: a single packaged beer binds multiple packages/volumes; draft (on-tap) beer is modeled as an independent product entity.
+   * Multi-packaging support: a single packaged beer binds multiple package variants and volumes; draft (on-tap) beer is modeled as an independent product entity.
 4. **Quantitative Consumption Tracking:**
    * Append-only consumption ledger recording: `event_id`, `user_id`, `product_id`, `volume_liters`, and `timestamp_utc`.
-   * Strict server-side immutability: once committed to the database, consumption events cannot be updated, backdated, or deleted.
-   * Client-side Soft-Undo: 60-second countdown timer on the client; canceling within 60 seconds discards the record locally before network transmission.
-   * Offline-first event buffering: offline logs are persisted in client-side non-volatile storage (IndexedDB/SQLite); upon network restoration, the 60-second Soft-Undo timer initiates prior to server synchronization.
+   * Strict server-side immutability: standard application database pools have strictly `INSERT` and `SELECT` permissions.
+   * Client-side Soft-Undo: 60-second countdown timer on the client for online entries; canceling within 60 seconds discards the record locally before network transmission.
+   * Offline-first event buffering: offline logs are persisted in client-side non-volatile storage (IndexedDB/SQLite); upon network reconnection, queued events sync immediately to the server with their original UTC creation timestamps.
 5. **Personal Collection & Tasting Diary:**
-   * Wishlist management: ability to flag catalog products to taste later.
-   * Automatic Collection formation: the first committed consumption event automatically moves a product from Wishlist to Collection.
-   * Soft-Undo rollback: canceling the first consumption within the 60-second window cancels Collection addition and preserves Wishlist status.
-   * Single review per product per user: rating scale 1.0 to 5.0 stars with 0.5 increments; optional text comment ($\le 2000$ characters); fully editable and deletable by the author.
-   * Review prerequisite: reviews are strictly restricted to products present in the user's personal Collection.
+   * Wishlist management: ability to manually add and remove catalog products to/from a personal `Wishlist`.
+   * Automatic Collection formation: the first committed consumption event automatically moves a product from `Wishlist` to `Collection`.
+   * Soft-Undo cancellation: canceling the first online consumption within the 60-second window cancels `Collection` addition and preserves `Wishlist` status.
+   * Single review per product per user: rating scale 1.0 to 5.0 with 0.5 increments; optional text comment ($\le 2000$ characters); fully editable and deletable by the author.
+   * Review prerequisite: reviews are strictly restricted to products present in the user's personal `Collection`.
    * Public product aggregate display: arithmetic mean rating, review count, and requesting user's personal rating.
 6. **Localized Consumption Analytics:**
    * Volume aggregates: total Liters consumed for the current day, current week, and current month.
-   * Local timezone normalization: UTC timestamps converted to the client's local IANA timezone for calendar boundaries (00:00:00 to 23:59:59).
-   * Drinking streak calculation: Current Streak and Longest Streak in consecutive local calendar days.
+   * Local timezone normalization: UTC timestamps converted to the client's local IANA timezone for calendar boundaries (00:00:00 to 23:59:59). Unrecognized timezone strings return HTTP 400 Bad Request.
+   * Drinking streak calculation: `CurrentStreak` and `LongestStreak` in consecutive local calendar days.
    * Calendar heatmap data: API endpoint returning local calendar dates with recorded consumption events.
    * Hourly distribution: 24-hour histogram for a selected local calendar day and historical average hourly profile.
-   * Frequency-based top rankings: Top Beers, Breweries, and Styles ranked strictly by consumption count and volume (independent of star ratings).
+   * Frequency-based top rankings: Top Beers, Breweries, and Styles ranked strictly by consumption count and volume. Ties broken strictly by most recent consumption date (`last_consumed_at DESC`).
 
 #### 1.2.2. Out-of-Scope (Strictly Excluded / Deferred)
 * **External Catalog APIs:** No integrations with Untappd, RateBeer, Open Food Facts, or third-party barcode databases. The catalog is self-contained and crowdsourced.
-* **Biometric & Health Calculations:** No computation of pure ethanol grams ($C_2H_5OH$), no Blood Alcohol Concentration (BAC / проміле) estimation, no calorie counting, and no sync with Apple Health or Google Health Connect.
+* **Biometric & Health Calculations:** No computation of pure ethanol grams ($C_2H_5OH$), no Blood Alcohol Concentration (BAC) estimation, no calorie counting, and no sync with Apple Health or Google Health Connect.
 * **Social Networking Features:** No public user profiles, no friend requests, no public activity streams, no direct messaging, no following other users, and no commenting on others' reviews.
 * **Retail & Commercial Inventory:** No price tracking, currency conversions, venue tap-lists, bar location finders, bottle shop stock tracking, or receipt scanning (OCR).
-* **Retroactive Server-Side Editing:** No API endpoints or UI permitting users to edit or delete historical consumption records once committed to the server.
+* **Retroactive Server-Side Editing:** No API endpoints or UI permitting standard users to edit or delete historical consumption records once committed to the server.
 * **Complex Sensory Profiling:** No spider/radar charts, BJCP sensory wheels, SRM color spectrum analyzers, or structured flavor tags.
 * **Gamification Subsystems:** No unlockable badges, XP/leveling, or competitive leaderboards comparing users against each other.
 
@@ -103,20 +104,23 @@ The terminology defined below establishes the **Ubiquitous Language** for this s
 | **`ServingType`** | Classification of how the beer is packaged and served: pre-packaged (`PACKAGED`) or on-tap (`DRAFT`). | `PackagingCategory` | *Type*, *Container*, *Kind* | Domain Enum (`ServingType.PACKAGED`, `ServingType.DRAFT`), DB Column |
 | **`PackageVariant`** | A physical packaging manifestation of a `PACKAGED` beer, defined by volume (ml/L) and an associated barcode. | `ProductPackage` | *Bottle*, *Can*, *SKU*, *Unit* | Domain Model, DB Table (`product_package_variants`) |
 | **`ConsumptionEvent`** | A single immutable record of a user drinking a specific volume of a `BeerProduct` at a specific point in time. | `ConsumptionLog`, `Consumption` | *DrinkLog*, *CheckIn*, *Intake*, *Transaction* | Domain Model, DB Table (`consumption_events`), REST API (`/api/v1/consumption`) |
-| **`SoftUndo`** | A client-side mechanism that buffers a newly logged `ConsumptionEvent` for 60 seconds before committing it to the server. | `UndoBuffer`, `PendingSubmission` | *Rollback*, *DeleteConsumption*, *CancelRequest* | Client Service, UI Component (`SoftUndoBanner`) |
-| **`OfflineQueue`** | Persistent local client storage (IndexedDB/SQLite) retaining uncommitted `ConsumptionEvent` instances created while disconnected. | `ClientEventQueue` | *OfflineCache*, *DraftEvents*, *SyncBuffer* | Client Architecture, Sync Manager |
-| **`Collection`** | The personal catalog of unique `BeerProduct` items that an individual user has consumed at least once. | `TastedList`, `PersonalCollection` | *Library*, *Inventory*, *BeerCellar*, *History* | Domain Entity, DB Table (`user_collections`), UI View |
-| **`Wishlist`** | A user-curated set of `BeerProduct` items that the user intends to taste in the future. | `ToTasteList` | *Favorites*, *Bookmarks*, *Watchlist*, *Cart* | Domain Entity, DB Table (`user_wishlists`), UI View |
-| **`Review`** | A user's qualitative evaluation of a `BeerProduct` in their `Collection`, comprising a star rating and an optional text comment. | `TastingReview` | *Feedback*, *Comment*, *Critique*, *Post* | Domain Model, DB Table (`product_reviews`), REST API (`/api/v1/reviews`) |
-| **`Rating`** | The numerical component of a `Review`, strictly constrained to the range 1.0 to 5.0 with step 0.5. | `Score`, `StarRating` | *Grade*, *Mark*, *Points*, *Stars* | Domain Value Object, DTO Field |
+| **`SoftUndo`** | A client-side mechanism that buffers a newly logged online `ConsumptionEvent` for 60 seconds before committing it to the server. | `UndoBuffer`, `PendingSubmission` | *Rollback*, *DeleteConsumption*, *CancelRequest* | Client Service, UI Component (`SoftUndoBanner`) |
+| **`OfflineQueue`** | Persistent local client storage (IndexedDB/SQLite) retaining uncommitted `ConsumptionEvent` records created while disconnected. | `ClientEventQueue` | *OfflineCache*, *DraftEvents*, *SyncBuffer* | Client Architecture, Sync Manager |
+| **`Collection`** | The personal catalog of unique `BeerProduct` records that an individual user has consumed at least once in the system. | `TastedList`, `PersonalCollection` | *Library*, *Inventory*, *BeerCellar*, *History* | Domain Entity, DB Table (`user_collections`), UI View |
+| **`Wishlist`** | A user-curated set of `BeerProduct` records that the user intends to taste in the future. | `ToTasteList` | *Favorites*, *Bookmarks*, *Watchlist*, *Cart* | Domain Entity, DB Table (`user_wishlists`), UI View |
+| **`Review`** | A user's qualitative evaluation of a `BeerProduct` in their `Collection`, comprising a numerical rating and an optional text comment. | `TastingReview` | *Feedback*, *Comment*, *Critique*, *Post* | Domain Model, DB Table (`product_reviews`), REST API (`/api/v1/reviews`) |
+| **`Rating`** | The numerical component of a `Review`, strictly constrained to the range 1.0 to 5.0 with step 0.5. | `Score`, `RatingScore` | *Stars*, *Grade*, *Mark*, *Points* | Domain Value Object, DTO Field |
 | **`VerifiedVersion`** | The authoritative, community-approved version of a `BeerProduct` record that has reached the consensus threshold. | `VerifiedRecord` | *ApprovedVersion*, *FinalVersion*, *MasterRecord* | Domain Entity, DB Column (`verification_status = 'VERIFIED'`) |
 | **`DraftVersion`** | A newly submitted or edited version of a `BeerProduct` awaiting verification through community consensus. | `PendingDraft`, `UnverifiedVersion` | *TempProduct*, *ProposedVersion*, *WorkingCopy* | Domain Entity, DB Column (`verification_status = 'DRAFT'`) |
-| **`Untrusted`** | Lifecycle status of a new `BeerProduct` that received $\ge 5$ rejection votes; hidden from global discovery but preserved for existing loggers. | `QuarantinedProduct` | *Blacklisted*, *Spam*, *RejectedProduct*, *SoftDeleted* | Domain Status Enum (`VerificationStatus.UNTRUSTED`) |
+| **`Untrusted`** | Lifecycle status of a new `BeerProduct` that received $\ge 5$ rejection votes; hidden from global discovery but preserved for existing loggers. | `QuarantinedProduct` | *Spam*, *Blacklisted*, *RejectedProduct*, *SoftDeleted* | Domain Status Enum (`VerificationStatus.UNTRUSTED`) |
 | **`ConsensusVote`** | A binary evaluation (`UPVOTE` or `DOWNVOTE`) cast by an eligible user on a `DraftVersion`. | `VerificationVote` | *Like*, *Dislike*, *Approval*, *ReviewVote* | Domain Model, DB Table (`consensus_votes`), REST API |
 | **`Tombstone`** | An immutable system placeholder entity (`[Deleted / Unknown Product]`) that replaces products purged by an Administrator. | `PlaceholderProduct` | *NullObject*, *GhostProduct*, *DummyBeer* | Domain Entity, Seed Data (`product_id = 0` or UUID nil) |
 | **`DrinkingDay`** | A calendar day (00:00:00 to 23:59:59 in the user's local IANA timezone) containing at least one committed `ConsumptionEvent`. | `ActiveDay` | *AlcoholDay*, *BeerDay*, *Session* | Analytics Domain, DTO (`DrinkingDayDTO`) |
 | **`Streak`** | A consecutive series of `DrinkingDay` intervals without intermediate interruption. Comprises `CurrentStreak` and `LongestStreak`. | `DrinkingStreak` | *Habit*, *Chain*, *Run*, *Series* | Analytics Domain, DTO (`StreakSummaryDTO`) |
 | **`AccountMaturity`** | Security gate state requiring account age $\ge 48$ hours and $\ge 1$ committed consumption before granting catalog editing/voting privileges. | `UserMaturityStatus` | *TrustScore*, *Karma*, *UserRank*, *Level* | Security Filter, User Domain (`isMatured()`) |
+| **`ABV`** | Alcohol by Volume: standard international metric expressing ethanol percentage in total liquid volume at 20°C. | `AlcoholPercentage` | *Proof*, *Strength*, *AlcoholContent* | Domain Value Object, DTO Field |
+| **`CAPTCHA`** | Completely Automated Public Turing test to tell Computers and Humans Apart: automated challenge-response verification mechanism. | `AntiBotChallenge` | *BotFilter*, *HumanTest* | Security Filter, Auth API |
+| **`EAN-13 / UPC`** | International Article Number (13 digits) and Universal Product Code (12 digits): global standard optical barcode symbologies. | `Barcode` | *Code*, *ProductCode*, *Serial* | Domain Field, DTO Field |
 
 ---
 
@@ -125,7 +129,7 @@ The terminology defined below establishes the **Ubiquitous Language** for this s
 ### 2.1. Product Perspective and Context
 The system operates as a distributed, multi-tenant client-server application. The backend server functions as the **single source of truth** for user authentication, crowdsourced catalog data, community voting consensus, immutable consumption logs, and analytical aggregations.
 
-The client application interacts with the server via an HTTPS REST API. The client maintains a local persistent queue allowing consumption logging during intermittent network loss, alongside a 60-second Soft-Undo buffer that ensures users can intercept and cancel unintentional entries locally.
+The client application interacts with the server via an HTTPS REST API. The client maintains a local persistent queue allowing consumption logging during intermittent network loss, alongside a 60-second Soft-Undo buffer that ensures users can intercept and cancel unintentional online entries locally.
 
 ```
 +--------------------------------------------------------------------------+
@@ -151,6 +155,7 @@ The client application interacts with the server via an HTTPS REST API. The clie
 |  |  - beer_products (Verified & Draft)   - consensus_votes             | |
 |  |  - consumption_events (Append-Only)   - product_reviews             | |
 |  |  - product_audit_ledger (Author ID)   - user_collections & wishlist | |
+|  |  - privileged stored procedures (SECURITY DEFINER Tombstone purge)  | |
 |  +---------------------------------------------------------------------+ |
 +--------------------------------------------------------------------------+
 ```
@@ -161,7 +166,7 @@ The client application interacts with the server via an HTTPS REST API. The clie
 
 The system defines two primary user classes: **Standard User** and **Administrator**. Unauthenticated users have no access to the system.
 
-| Capability / Operation | Standard User (Immature) | Standard User (Mature: $\ge 48\text{h}$ + $\ge 1$ Intake) | Administrator |
+| Capability / Operation | Standard User (Immature) | Standard User (Mature: $\ge 48\text{h}$ + $\ge 1$ Logged Consumption) | Administrator |
 | :--- | :---: | :---: | :---: |
 | **Authenticate & Maintain Profile** | Allowed | Allowed | Allowed |
 | **Browse Catalog (Verified & Draft)** | Allowed | Allowed | Allowed |
@@ -172,17 +177,17 @@ The system defines two primary user classes: **Standard User** and **Administrat
 | **Submit New Beer Product / Edit Draft** | **Blocked** (HTTP 403) | Allowed (Max 5/day) | Allowed (Uncapped) |
 | **Vote in Consensus (Upvote / Downvote)** | **Blocked** (HTTP 403) | Allowed (1 vote/version) | Allowed |
 | **Inspect Creator Identity Audit Logs** | **Blocked** | **Blocked** | Allowed |
-| **Purge Spam / Malicious Product** | **Blocked** | **Blocked** | Allowed (Replaces with Tombstone) |
+| **Purge Fraudulent Product** | **Blocked** | **Blocked** | Allowed (Replaces with Tombstone) |
 
 ---
 
 ### 2.3. General Constraints (Technological and Regulatory)
 
 1. **Server as Sole Authority:** No client-side offline action is legally committed until successfully ingested and acknowledged by the server.
-2. **Append-Only Immutability:** The server provides no `UPDATE` or `DELETE` endpoints for committed consumption records. Accidental logs must be intercepted during the client-side 60-second Soft-Undo window.
+2. **Append-Only Immutability & Privileged Purge Procedure:** Standard application connection pools are restricted strictly to `INSERT` and `SELECT` operations on `consumption_events`. Standard users cannot modify or delete committed records. When an Administrator purges a fraudulent product, a dedicated database stored procedure with `SECURITY DEFINER` permissions executes the foreign key replacement to `Tombstone` atomically, ensuring application pool immutability is never breached.
 3. **UTC Temporal Storage:** All timestamps across consumption logs, consensus votes, and catalog versions must be persisted in UTC. Timezone offsets must be supplied by the client during retrieval for local calendar calculations.
 4. **Creator Anonymity / Non-Disclosure:** The user ID of any user creating or editing a product is stored strictly in internal audit tables and must **never** be exposed in public API schemas or UI views.
-5. **Dual-Version Limit:** A catalog product can possess at most two versions simultaneously: exactly one active `Verified` version (if established) and at most one pending `Draft` version.
+5. **Dual-Version Limit:** A catalog product can possess at most two versions simultaneously: exactly one active `VerifiedVersion` (if established) and at most one pending `DraftVersion`.
 6. **Data Privacy (GDPR / Personal Domain):** Consumption history reflects personal lifestyle data. Under no circumstances may one user's consumption logs, wishlist, or collection be exposed to other users.
 
 ---
@@ -209,12 +214,13 @@ The system defines two primary user classes: **Standard User** and **Administrat
 ---
 
 #### REQ-F-003: Crowdsourced Consensus Elevation and Rejection
-* **Description:** The system shall track community verification votes on draft versions and automatically transition their status upon reaching voting thresholds.
+* **Description:** The system shall track community verification votes on draft versions and automatically transition their status upon reaching voting thresholds, resolving race conditions via transactional row locking (First-Commit Wins).
 * **Acceptance Criteria:**
   * **AC-003.1:** When a `DRAFT` version receives its 10th `UPVOTE`, the system shall atomically promote it to `VERIFIED`.
   * **AC-003.2:** If a user attempts to vote on a draft they authored, the vote shall be rejected with HTTP 400 Bad Request.
   * **AC-003.3:** If a user attempts to vote more than once on the same draft version, the subsequent vote shall be rejected with HTTP 409 Conflict.
-  * **AC-003.4:** If a newly created draft receives 5 `DOWNVOTE`s, the system shall transition it to `UNTRUSTED` (hidden from catalog search). If an edited draft of an existing product receives 5 `DOWNVOTE`s, the draft shall be discarded and the prior `VERIFIED` version shall remain active.
+  * **AC-003.4:** If a newly created draft receives 5 `DOWNVOTE`s, the system shall transition it to `UNTRUSTED` (hidden from catalog search). If an edited draft of an existing product receives 5 `DOWNVOTE`s, the draft shall be deleted/discarded and the prior `VERIFIED` version shall remain active.
+  * **AC-003.5:** Concurrent voting requests shall execute under pessimistic row locking (`SELECT FOR UPDATE`). The transaction that first reaches the threshold (10 Upvotes or 5 Downvotes) executes the state transition; any subsequent concurrent vote on the closed voting round is rejected with HTTP 409 Conflict.
 
 ---
 
@@ -229,25 +235,25 @@ The system defines two primary user classes: **Standard User** and **Administrat
 #### REQ-F-005: Creator Anonymity and Non-Disclosure
 * **Description:** The system shall redact and prevent disclosure of the product author's identity in public interfaces and API endpoints.
 * **Acceptance Criteria:**
-  * **AC-005.1:** All catalog item retrieval API responses (single product, search results, lists) shall not contain `created_by`, `user_id`, or author metadata fields.
+  * **AC-005.1:** All catalog product retrieval API responses (single product, search results, lists) shall not contain `created_by`, `user_id`, or author metadata fields.
   * **AC-005.2:** The author identity shall only be accessible to users with the `ADMINISTRATOR` role via dedicated audit endpoints.
 
 ---
 
 #### REQ-F-006: Quantitative Consumption Logging with Soft-Undo
-* **Description:** The system shall provide a 60-second client-side buffer allowing the user to cancel an entered consumption log before it is transmitted and committed to the server.
+* **Description:** The system shall provide a 60-second client-side buffer allowing the user to cancel an entered online consumption log before it is transmitted and committed to the server.
 * **Acceptance Criteria:**
   * **AC-006.1:** When a user logs a consumption event while online, a 60-second countdown timer shall be initiated on the client.
-  * **AC-006.2:** If the user clicks "Undo" before the timer expires, the event is deleted locally and never transmitted to the server.
+  * **AC-006.2:** If the user clicks "Undo" before the timer expires, the event is discarded locally and never transmitted to the server.
   * **AC-006.3:** When the 60-second timer elapses, the client automatically dispatches the event to the server, where it is persisted to the append-only ledger with its original UTC creation timestamp. Once received by the server, the event cannot be deleted or modified.
 
 ---
 
-#### REQ-F-007: Offline Consumption Buffering and Synchronization
-* **Description:** The system shall allow users to record consumption events without network connectivity and reliably synchronize them once connectivity is restored.
+#### REQ-F-007: Offline Consumption Buffering and Immediate Reconnection Sync
+* **Description:** The system shall allow users to record consumption events without network connectivity and immediately synchronize them once connectivity is restored.
 * **Acceptance Criteria:**
-  * **AC-007.1:** When offline, logged events are saved to local persistent storage, and the user may cancel any queued event immediately.
-  * **AC-007.2:** When network connectivity is restored, the client shall start the 60-second Soft-Undo timer for each queued event; upon timer completion, each event is synced to the server with its original offline creation timestamp.
+  * **AC-007.1:** When offline, logged events are saved to local persistent storage (IndexedDB/SQLite), and the user may cancel any queued event locally at any time while offline.
+  * **AC-007.2:** When network connectivity is restored, the client shall immediately transmit all queued offline events to the server in FIFO sequence without an additional 60-second delay, preserving each event's original UTC creation timestamp.
 
 ---
 
@@ -256,41 +262,61 @@ The system defines two primary user classes: **Standard User** and **Administrat
 * **Acceptance Criteria:**
   * **AC-008.1:** When the first consumption event for a product is committed, the product shall be added to the user's `Collection`.
   * **AC-008.2:** If the product was in the user's `Wishlist`, it shall be automatically removed from the `Wishlist` upon being added to the `Collection`.
-  * **AC-008.3:** If an event is canceled via Soft-Undo within the 60-second window, the product shall not be added to the `Collection`, and any pending removal from the `Wishlist` shall be aborted.
+  * **AC-008.3:** If an online event is canceled via Soft-Undo within the 60-second window, the product shall not be added to the `Collection`, and any pending removal from the `Wishlist` shall be aborted.
 
 ---
 
 #### REQ-F-009: Product Rating and Reviewing Restricted to Collection
-* **Description:** The system shall permit users to rate and review only products present in their personal Collection.
+* **Description:** The system shall permit users to rate and review only products present in their personal Collection, enforcing bounds on scores and text comments.
 * **Acceptance Criteria:**
   * **AC-009.1:** If a user attempts to submit a review for a product not in their `Collection`, the operation shall be rejected with HTTP 403 Forbidden.
-  * **AC-009.2:** The rating value must be between 1.0 and 5.0 with a step of 0.5; any other numerical value shall be rejected by input validation.
+  * **AC-009.2:** The rating value must be between 1.0 and 5.0 with a step of 0.5; any other numerical value shall be rejected with HTTP 400 Bad Request.
   * **AC-009.3:** A user may update or delete their existing review at any time, which immediately recalculates the product's global average rating and review count.
+  * **AC-009.4:** The review text comment is optional. If provided, it must not exceed 2000 UTF-8 characters; payloads exceeding 2000 characters shall be rejected with HTTP 400 Bad Request.
 
 ---
 
 #### REQ-F-010: Localized Temporal Analytics and Streak Calculation
-* **Description:** The system shall compute consumption metrics and drinking streaks adjusted to the client's local IANA timezone.
+* **Description:** The system shall compute consumption metrics and drinking streaks adjusted to the client's local IANA timezone, rejecting invalid timezone identifiers.
 * **Acceptance Criteria:**
   * **AC-010.1:** The server shall convert stored UTC timestamps into the user's local timezone (00:00:00 to 23:59:59) to determine `DrinkingDay` calendar boundaries.
   * **AC-010.2:** The system shall return total consumed volume in Liters grouped by current local day, current local week (Monday–Sunday), and current local month.
   * **AC-010.3:** The system shall accurately output `CurrentStreak` (consecutive active days leading up to today or yesterday) and `LongestStreak`.
+  * **AC-010.4:** If the request supplies an unparseable or unrecognized IANA timezone identifier, the server shall return HTTP 400 Bad Request with an invalid timezone error message.
 
 ---
 
-#### REQ-F-011: Frequency-Based Qualitative Leaderboards
-* **Description:** The system shall generate top rankings for most consumed beers, breweries, and styles based strictly on consumption event frequency and volume.
+#### REQ-F-011: Frequency-Based Qualitative Leaderboards and Tie-Breaking
+* **Description:** The system shall generate top rankings for most consumed beers, breweries, and styles based strictly on consumption event frequency and volume, with deterministic tie-breaking.
 * **Acceptance Criteria:**
-  * **AC-011.1:** Ranking position shall be determined by the total count of consumption occasions (and total volume in Liters), strictly ignoring user star ratings.
-  * **AC-011.2:** Products or breweries with high star ratings but fewer consumption occasions shall rank lower than items with more consumption occasions.
+  * **AC-011.1:** Ranking position shall be determined by the total count of consumption occasions (and total volume in Liters), strictly ignoring user rating scores.
+  * **AC-011.2:** Products or breweries with higher rating scores but fewer consumption occasions shall rank lower than products with more consumption occasions.
+  * **AC-011.3:** In the event of an exact tie in both consumption count and volume, the system shall order entries strictly by latest consumption date (`last_consumed_at DESC`).
 
 ---
 
-#### REQ-F-012: Administrative Purge with Tombstone Substitution
-* **Description:** The system shall permit administrators to purge malicious/spam products while preserving referential integrity in consumption history.
+#### REQ-F-012: Administrative Purge with Privileged Tombstone Substitution
+* **Description:** The system shall permit administrators to purge fraudulent products while preserving referential integrity and historical consumption volumes via a privileged stored procedure.
 * **Acceptance Criteria:**
-  * **AC-012.1:** When an Administrator deletes a product, all consumption events referencing that product shall have their product reference updated to the Tombstone ID (`[Deleted / Unknown Product]`).
-  * **AC-012.2:** Following the purge, historical volume calculations and streak counts for users who logged that product remain unchanged.
+  * **AC-012.1:** When an Administrator invokes product deletion, a database stored procedure executing with `SECURITY DEFINER` privileges shall atomically update all `product_id` foreign keys in `consumption_events` to the system `Tombstone` ID (`[Deleted / Unknown Product]`).
+  * **AC-012.2:** Following the purge, historical volume calculations and streak counts for users who logged that product remain intact and unchanged.
+
+---
+
+#### REQ-F-013: Product Draft Submission for Existing Product Edits
+* **Description:** The system shall permit a mature user to submit proposed revisions to an existing verified product, creating a pending draft version without overwriting the active verified version.
+* **Acceptance Criteria:**
+  * **AC-013.1:** Only authenticated users satisfying the `AccountMaturity` requirement can submit edits for an existing product. Immature users receive HTTP 403 Forbidden.
+  * **AC-013.2:** If the product already has a pending `DraftVersion`, submitting a new edit replaces the prior draft and resets all consensus vote counters (`upvotes = 0`, `downvotes = 0`).
+  * **AC-013.3:** The existing `VerifiedVersion` remains active and served to users until the new draft successfully reaches 10 `UPVOTE` votes.
+
+---
+
+#### REQ-F-014: Manual Wishlist Management
+* **Description:** The system shall permit authenticated users to explicitly add existing catalog products to their personal Wishlist and remove them without logging a consumption event.
+* **Acceptance Criteria:**
+  * **AC-014.1:** An authenticated user may add any existing catalog product to their `Wishlist` via `POST /api/v1/users/me/wishlist`. Submitting a product already present in the wishlist is idempotent and returns HTTP 200 OK.
+  * **AC-014.2:** An authenticated user may remove a product from their `Wishlist` via `DELETE /api/v1/users/me/wishlist/{product_id}`. If the product is not in the wishlist, the request returns HTTP 404 Not Found.
 
 ---
 
@@ -307,11 +333,14 @@ The server exposes a stateless RESTful HTTP API utilizing JSON payloads. Key end
 * `POST /api/v1/auth/register` — User registration with CAPTCHA validation.
 * `POST /api/v1/auth/login` — Authentication returning JWT bearer token.
 * `GET /api/v1/products` — Catalog retrieval with `?verified_only=true|false` and query filters.
-* `POST /api/v1/products` — Product draft submission (gated by `AccountMaturity`).
+* `POST /api/v1/products` — Product draft creation (gated by `AccountMaturity`).
+* `PUT /api/v1/products/{id}/draft` — Submit edit draft for existing product (gated by `AccountMaturity`).
 * `POST /api/v1/products/{id}/vote` — Cast Upvote/Downvote consensus vote.
 * `POST /api/v1/consumption` — Ingest consumption event (idempotent via client UUID).
 * `GET /api/v1/users/me/collection` — Retrieve personal collection.
 * `GET /api/v1/users/me/wishlist` — Retrieve personal wishlist.
+* `POST /api/v1/users/me/wishlist` — Manually add product to wishlist.
+* `DELETE /api/v1/users/me/wishlist/{product_id}` — Manually remove product from wishlist.
 * `POST /api/v1/reviews` — Submit or edit review for a collection product.
 * `GET /api/v1/analytics/summary?tz={iana_tz}` — Retrieve volume totals, streaks, and calendar days.
 * `DELETE /api/v1/admin/products/{id}` — Administrator purge with Tombstone replacement.
@@ -349,9 +378,9 @@ The server exposes a stateless RESTful HTTP API utilizing JSON payloads. Key end
   * Client-side persistent storage (IndexedDB on Web, SQLite on Mobile) shall retain uncommitted consumption events across unexpected application terminations, browser restarts, and device power cycles with zero loss of queued records.
 * **REQ-NF-009 (Sync Idempotency):**
   * The consumption ingestion endpoint shall enforce idempotency using a client-generated UUID per event. Submitting the same UUID multiple times shall return HTTP 200/201 without creating duplicate ledger records.
-* **REQ-NF-010 (Server-Side Immutability and ACID Guarantee):**
-  * The database schema shall restrict `UPDATE` and `DELETE` permissions on the `consumption_events` table for application connection pools.
-  * Consensus promotion and administrative tombstone replacement operations must execute within single atomic ACID transactions to guarantee zero orphaned records.
+* **REQ-NF-010 (Server-Side Immutability and Privileged Tombstone Procedure):**
+  * Standard application database connection pools shall be granted strictly `INSERT` and `SELECT` privileges on the `consumption_events` table (denying `UPDATE` and `DELETE`).
+  * Tombstone foreign key replacement during administrative purge shall execute strictly via a dedicated stored procedure granted `SECURITY DEFINER` permissions, ensuring standard application sessions cannot modify consumption records.
 
 ---
 
@@ -405,7 +434,7 @@ Feature: Catalog Consensus Elevation
 
 ---
 
-#### BDD-SCN-003: Soft-Undo Cancellation within 60 Seconds (Edge Case / Rollback)
+#### BDD-SCN-003: Soft-Undo Cancellation within 60 Seconds (Edge Case / Cancellation)
 ```gherkin
 Feature: Soft-Undo Cancellation
   As an authenticated user
@@ -414,13 +443,13 @@ Feature: Soft-Undo Cancellation
 
   Scenario: BDD-SCN-003 - User cancels entry within the 60-second soft-undo window
     Given the user "Iryna" is authenticated and online
-    And the beer "Dark Dunkele" is not in Iryna's Collection
-    When Iryna accidentally taps to log 1.0 Liter of "Dark Dunkele"
+    And the beer "Dark Dunkel" is not in Iryna's Collection
+    When Iryna accidentally taps to log 1.0 Liter of "Dark Dunkel"
     And the client starts the 60-second Soft-Undo countdown timer
     And Iryna clicks the "Undo" button after 15 seconds
     Then the client immediately aborts the timer and discards the pending event
     And no network request is transmitted to the server
-    And "Dark Dunkele" is not added to Iryna's Collection
+    And "Dark Dunkel" is not added to Iryna's Collection
     And Iryna's analytics and consumption totals remain unchanged
 ```
 
@@ -463,6 +492,22 @@ Feature: Anti-Abuse and Sybil Protection
 
 ---
 
+#### BDD-SCN-006: Rejection of Invalid IANA Timezone (Edge Case / Validation Error)
+```gherkin
+Feature: Temporal Analytics Timezone Validation
+  As an API consumer
+  I want clear validation errors when sending invalid timezones
+  So that analytics calculations do not produce corrupted calendar buckets
+
+  Scenario: BDD-SCN-006 - User requests analytics with an invalid timezone
+    Given the user "Oleg" is authenticated
+    When Oleg requests consumption analytics with timezone query parameter "Mars/Olympus_Mons"
+    Then the server responds with HTTP 400 Bad Request
+    And the response body contains "Invalid IANA timezone identifier: Mars/Olympus_Mons"
+```
+
+---
+
 ### 4.2. Consensus Verification State Machine
 
 ```mermaid
@@ -485,7 +530,7 @@ stateDiagram-v2
     Voting_New --> Untrusted : Accumulates >= 5 Downvotes (Hidden from search)
     
     Voting_Edit --> Verified : Accumulates >= 10 Upvotes (Replaces previous Verified)
-    Voting_Edit --> Verified : Accumulates >= 5 Downvotes (Draft discarded, prior Verified remains)
+    Voting_Edit --> [*] : Accumulates >= 5 Downvotes (Draft discarded, prior Verified remains active)
     
     Untrusted --> Tombstone : Administrator Purges
     Draft_New --> Tombstone : Administrator Purges
@@ -512,20 +557,21 @@ sequenceDiagram
         Client->>Queue: Persist Event to Offline Queue
         Note over Client: User can cancel anytime while offline
         Note over Client: Network connection restored
-        Client->>Client: Start 60s Soft-Undo Countdown
+        Client->>Server: POST /api/v1/consumption (Immediate FIFO Sync)
+        Server->>Server: Insert into Append-Only Ledger
+        Server-->>Client: 201 Created
     else Device is Online
         Client->>Client: Start 60s Soft-Undo Countdown
-    end
-
-    alt User Clicks Undo within 60s
-        User->>Client: Click Undo
-        Client->>Queue: Discard Pending Event
-        Client-->>User: Action Canceled (Zero network traffic)
-    else 60s Elapses without Cancellation
-        Client->>Server: POST /api/v1/consumption (UUID, Product X, 0.5L, timestamp_utc)
-        Server->>Server: Validate & Insert into Append-Only Ledger
-        Server->>Server: Update Collection & Remove from Wishlist
-        Server-->>Client: 201 Created
-        Client-->>User: Consumption Persisted & Locked
+        alt User Clicks Undo within 60s
+            User->>Client: Click Undo
+            Client->>Queue: Discard Pending Event
+            Client-->>User: Action Canceled (Zero network traffic)
+        else 60s Elapses without Cancellation
+            Client->>Server: POST /api/v1/consumption (UUID, Product X, 0.5L, timestamp_utc)
+            Server->>Server: Insert into Append-Only Ledger
+            Server->>Server: Update Collection & Remove from Wishlist
+            Server-->>Client: 201 Created
+            Client-->>User: Consumption Persisted & Locked
+        end
     end
 ```
