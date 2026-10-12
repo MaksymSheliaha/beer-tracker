@@ -73,6 +73,8 @@
 * **AC-NF-007.1:** Операції злиття (Merge) та створення споживання з оновленням вішліста/колекції виконуються в межах ACID-транзакцій.
 * **AC-NF-008.1:** 100% помилок 4xx та 5xx форматуються за RFC 7807 (`application/problem+json`).
 * **AC-NF-009.1:** База даних містить унікальний індекс `(user_id, version_id)` для запобігання гонкам даних при голосуванні.
+* **AC-NF-010.1:** Логування здійснюється у форматі JSON у консоль (`stdout`/`stderr`) та ротаційний файл `logs/beer-tracker.json.log` за допомогою SLF4J/Logback (`logstash-logback-encoder`) з обов'язковими MDC-полями `trace_id`, `user_id`, `client_ip`.
+* **AC-NF-011.1:** 100% ключових бізнес-подій (`catalog_search`, `consumption_entry_created`, `version_verification_completed`, `catalog_merge_executed`, `security_violation_audit`) відповідають стабільним JSON-схемам підрозділу 3.3.4 SRS.
 
 ---
 

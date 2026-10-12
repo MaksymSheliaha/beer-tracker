@@ -25,3 +25,5 @@
 | **REQ-NF-007** | Транзакційна цілісність ACID (рівень Read Committed, Rollback) | AC-NF-007.1 | N/A | [TODO] | [TODO] | Specified |
 | **REQ-NF-008** | Стандартизація помилок API за RFC 7807 (400 syntax, 422 semantic, 409 conflict) | AC-NF-008.1 | BDD-SCN-004 | [TODO] | [TODO] | Specified |
 | **REQ-NF-009** | Запобігання гонкам даних (Race Conditions) при голосуванні за версії | AC-NF-009.1 | N/A | [TODO] | [TODO] | Specified |
+| **REQ-NF-010** | Обов'язкове структуроване JSON-логування (SLF4J, Logback, MDC, ротація файлів) | AC-NF-010.1 | N/A | [TODO] | [TODO] | Specified |
+| **REQ-NF-011** | Стабільні схеми JSON-логів (search, consumption, moderation, merge, security) | AC-NF-011.1 | N/A | [TODO] | [TODO] | Specified |
