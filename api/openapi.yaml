@@ -1,19 +1,20 @@
 openapi: 3.0.3
 info:
   title: Beer Tracker REST API
-  description: "# Beer Tracker Backend REST API Specification\n\nСпецифікація інтерфейсу системи обліку споживання пива, персональної\
-    \ аналітики та краудсорсингового каталогу на wiki-засадах.\n\n**Методологія розробки:** API-First RESTful Architecture,\
-    \ Specification-Driven Development (SDD), Test-Driven Development (TDD).  \n**Нормативні документи:** SRS v2.1.0, Domain\
-    \ Glossary v2.0.0, BDD Scenarios (BDD-SCN-001..005).  \n**Автентифікація:** Stateless JWT (Bearer token).\n"
+  description: |
+    Публічний контракт REST API сервісу обліку споживання пива, персональної аналітики та краудсорсингового каталогу сортів пива.
   version: 2.1.0
   contact:
     name: Beer Tracker Engineering Team
     email: dev@beertracker.local
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
 servers:
 - url: https://api.beertracker.local/api/v1
   description: Production API Server
-- url: http://localhost:8080/api/v1
-  description: Local Development & Testing Server
+- url: https://staging-api.beertracker.local/api/v1
+  description: Staging API Server
 security:
 - BearerAuth: []
 paths:
@@ -22,13 +23,7 @@ paths:
       tags:
       - Authentication
       summary: Реєстрація нового користувача
-      description: '**REQ-ID:** REQ-NF-004, REQ-NF-006, REQ-NF-008
-
-
-        Створює новий обліковий запис користувача. Зберігає солений хеш пароля (Argon2id/BCrypt), призначає базову роль `USER`
-        та фіксує таймзону IANA.
-
-        '
+      description: Створює новий обліковий запис користувача з базовою роллю `USER` та зберігає обраний часовий пояс IANA.
       operationId: registerUser
       x-req-id:
       - REQ-NF-004
@@ -59,7 +54,7 @@ paths:
                 created_user:
                   summary: Створений обліковий запис
                   value:
-                    id: u0a80123-4201-4444-9999-0123456789ab
+                    id: 10a80123-4201-4444-9999-0123456789ab
                     email: user@example.com
                     role: USER
                     timezone: Europe/Kyiv
@@ -80,7 +75,7 @@ paths:
                     - field: body
                       issue: Unexpected token at line 2
                     timestamp: '2026-10-20T12:00:01Z'
-                    traceId: t0a80123-0001-4444-9999-0123456789ab
+                    traceId: 20a80123-0001-4444-9999-0123456789ab
         '409':
           description: Користувач із вказаним email уже зареєстрований
           content:
@@ -97,7 +92,7 @@ paths:
                     - field: email
                       issue: Email address is already registered in the system
                     timestamp: '2026-10-20T12:00:02Z'
-                    traceId: t0a80123-0002-4444-9999-0123456789ab
+                    traceId: 20a80123-0002-4444-9999-0123456789ab
         '422':
           description: Семантична помилка валідації полів
           content:
@@ -116,18 +111,13 @@ paths:
                     - field: password
                       issue: Password must be at least 8 characters long
                     timestamp: '2026-10-20T12:00:03Z'
-                    traceId: t0a80123-0003-4444-9999-0123456789ab
+                    traceId: 20a80123-0003-4444-9999-0123456789ab
   /auth/login:
     post:
       tags:
       - Authentication
-      summary: Вхід та отримання токенів (Access + Refresh)
-      description: '**REQ-ID:** REQ-NF-004, REQ-NF-006, REQ-NF-008
-
-
-        Перевіряє облікові дані користувача та повертає JWT пару токенів (Access 15 хв, Refresh 30 днів).
-
-        '
+      summary: Автентифікація користувача та отримання токенів
+      description: Перевіряє облікові дані користувача та повертає пару токенів доступу (`access_token`) і оновлення (`refresh_token`).
       operationId: loginUser
       x-req-id:
       - REQ-NF-004
@@ -158,7 +148,7 @@ paths:
                   summary: Видані JWT токени
                   value:
                     access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1MGE4MDEyMy00MjAxLTQ0NDQtOTk5OS0wMTIzNDU2Nzg5YWIiLCJyb2xlIjoiVVNFUiIsImV4cCI6MTgwMDAwMDAwMH0.signature
-                    refresh_token: r0a80123-9999-4444-8888-0123456789ab
+                    refresh_token: 50a80123-9999-4444-8888-0123456789ab
                     token_type: Bearer
                     expires_in: 900
         '401':
@@ -177,18 +167,14 @@ paths:
                     - field: credentials
                       issue: Authentication failed for provided credentials
                     timestamp: '2026-10-20T12:01:00Z'
-                    traceId: t0a80123-0004-4444-9999-0123456789ab
+                    traceId: 20a80123-0004-4444-9999-0123456789ab
   /auth/refresh:
     post:
       tags:
       - Authentication
-      summary: Оновлення JWT токенів з одноразовою ротацією
-      description: '**REQ-ID:** REQ-NF-004, REQ-NF-008
-
-
-        Приймає дійсний Refresh-токен, інвалідує його (ротація) та повертає нову пару Access і Refresh токенів.
-
-        '
+      summary: Оновлення пари токенів доступу
+      description: Приймає чинний `refresh_token`, анулює його після одноразового використання та повертає нову пару токенів
+        доступу й оновлення.
       operationId: refreshToken
       x-req-id:
       - REQ-NF-004
@@ -204,7 +190,7 @@ paths:
               refresh_token_payload:
                 summary: Передача діючого Refresh-токена
                 value:
-                  refresh_token: r0a80123-9999-4444-8888-0123456789ab
+                  refresh_token: 50a80123-9999-4444-8888-0123456789ab
       responses:
         '200':
           description: Токени успішно оновлено
@@ -217,7 +203,7 @@ paths:
                   summary: Нова пара токенів
                   value:
                     access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.new_access_token.signature
-                    refresh_token: r0a80123-1111-4444-2222-0123456789ab
+                    refresh_token: 50a80123-1111-4444-2222-0123456789ab
                     token_type: Bearer
                     expires_in: 900
         '401':
@@ -236,19 +222,14 @@ paths:
                     - field: refresh_token
                       issue: Token signature expired or token already rotated
                     timestamp: '2026-10-20T12:02:00Z'
-                    traceId: t0a80123-0005-4444-9999-0123456789ab
+                    traceId: 20a80123-0005-4444-9999-0123456789ab
   /beers:
     get:
       tags:
       - Catalog
       summary: Пошук та фільтрація списку сортів пива
-      description: '**REQ-ID:** REQ-F-001, REQ-NF-001, REQ-NF-008
-
-
-        Повертає сторінковий список активних продуктів каталогу. Підтримує повнотекстовий пошук за назвою або броварнею, фільтрацію
-        за стилем, країною, типом товару (`PACKAGED`/`DRAFT`), штрих-кодом та сортування.
-
-        '
+      description: Повертає сторінковий список продуктів каталогу з підтримкою текстового пошуку за назвою або броварнею,
+        фільтрації за стилем, країною, типом продукту (`PACKAGED` / `DRAFT`), штрих-кодом та сортування.
       operationId: listBeers
       x-req-id:
       - REQ-F-001
@@ -352,7 +333,7 @@ paths:
                       rating_avg: 4.4
                       reviews_count: 85
                       packagings:
-                      - id: p0a80123-0033-4444-9999-0123456789ab
+                      - id: 30a80123-0033-4444-9999-0123456789ab
                         beer_id: b0a80123-0012-4444-9999-0123456789ab
                         volume_ml: 500
                         package_type: BOTTLE
@@ -380,32 +361,21 @@ paths:
                     - field: size
                       issue: Must be between 1 and 100
                     timestamp: '2026-10-20T12:05:00Z'
-                    traceId: t0a80123-0006-4444-9999-0123456789ab
+                    traceId: 20a80123-0006-4444-9999-0123456789ab
     post:
       tags:
       - Catalog
       summary: Реєстрація нового продукту в каталозі
-      description: '**REQ-ID:** REQ-F-001, REQ-F-002, REQ-NF-008
-
-
-        Створює новий сорт пива з початковим статусом `UNVERIFIED`.
-
+      description: |-
+        Створює новий сорт пива в каталозі з початковим статусом `UNVERIFIED`.
 
         **Правила валідації:**
-
-        - Має містити щонайменше 1 варіант пакування (AC-001.2);
-
-        - Об''єм кожного пакування в межах [50..10000] мл (AC-001.2);
-
-        - Для `beer_type = DRAFT` дозволено тільки `package_type = DRAFT` (AC-001.3);
-
-        - Для `beer_type = PACKAGED` заборонено `package_type = DRAFT` (AC-001.4);
-
-        - Пара `(brewery, name)` повинна бути унікальною без урахування регістру (AC-002.1);
-
-        - Штрих-коди пакувань мають бути унікальними в межах системи (AC-002.2, BDD-SCN-004).
-
-        '
+        - Продукт має містити щонайменше 1 варіант пакування;
+        - Об'єм кожного пакування має становити від 50 до 10000 мл;
+        - Для `beer_type = DRAFT` дозволено виключно `package_type = DRAFT`;
+        - Для `beer_type = PACKAGED` тип тари `DRAFT` заборонено;
+        - Комбінація `(brewery, name)` має бути унікальною без урахування регістру;
+        - Штрих-коди пакувань мають бути унікальними в межах каталогу.
       operationId: createBeer
       x-req-id:
       - REQ-F-001
@@ -421,7 +391,7 @@ paths:
               $ref: '#/components/schemas/BeerCreateRequest'
             examples:
               mova_dark_stout:
-                summary: Створення сорту Mova Dark Stout (відповідає BDD-SCN-001)
+                summary: Створення сорту Mova Dark Stout
                 value:
                   name: Mova Dark Stout
                   brewery: Mova Brewing Co.
@@ -480,7 +450,7 @@ paths:
                     rating_avg: null
                     reviews_count: 0
                     packagings:
-                    - id: p0a80123-0001-4444-9999-0123456789ab
+                    - id: 30a80123-0001-4444-9999-0123456789ab
                       beer_id: b0a80123-0001-4444-9999-0123456789ab
                       volume_ml: 500
                       package_type: CAN
@@ -502,7 +472,7 @@ paths:
                     - field: name
                       issue: Field is required and cannot be blank
                     timestamp: '2026-10-20T12:10:01Z'
-                    traceId: t0a80123-0007-4444-9999-0123456789ab
+                    traceId: 20a80123-0007-4444-9999-0123456789ab
         '401':
           description: Автентифікація відсутня або недійсна
           content:
@@ -519,7 +489,7 @@ paths:
                     - field: Authorization
                       issue: Bearer token missing or invalid
                     timestamp: '2026-10-20T12:10:02Z'
-                    traceId: t0a80123-0008-4444-9999-0123456789ab
+                    traceId: 20a80123-0008-4444-9999-0123456789ab
         '409':
           description: Конфлікт унікальності (дублікат назви або штрих-коду)
           content:
@@ -528,7 +498,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
                 duplicate_barcode_conflict:
-                  summary: Дублікат штрих-коду (BDD-SCN-004)
+                  summary: Дублікат штрих-коду
                   value:
                     code: DUPLICATE_BARCODE_CONFLICT
                     message: Штрих-код 8594404110123 уже прив'язаний до іншого товару
@@ -536,7 +506,7 @@ paths:
                     - field: packagings[0].barcode
                       issue: Barcode 8594404110123 is already assigned to Pilsner Urquell
                     timestamp: '2026-10-20T12:10:03Z'
-                    traceId: t0a80123-0009-4444-9999-0123456789ab
+                    traceId: 20a80123-0009-4444-9999-0123456789ab
                 duplicate_name_conflict:
                   summary: Дублікат назви та броварні
                   value:
@@ -544,9 +514,9 @@ paths:
                     message: Beer with name 'Mova Dark Stout' and brewery 'Mova Brewing Co.' already exists
                     details:
                     - field: name
-                      issue: Conflict on unique combination (brewery, name)
+                      issue: A product with the same name and brewery already exists in the catalog
                     timestamp: '2026-10-20T12:10:04Z'
-                    traceId: t0a80123-0010-4444-9999-0123456789ab
+                    traceId: 20a80123-0010-4444-9999-0123456789ab
         '422':
           description: Порушення правил валідації тари або несумісність типів
           content:
@@ -555,7 +525,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
                 draft_type_mismatch:
-                  summary: Несумісність типу тари для DRAFT (AC-001.3)
+                  summary: Несумісність типу тари для DRAFT
                   value:
                     code: INVALID_PACKAGE_TYPE_FOR_DRAFT
                     message: All packagings for DRAFT beer must have package_type DRAFT
@@ -563,9 +533,9 @@ paths:
                     - field: packagings[0].package_type
                       issue: Found 'BOTTLE' for beer_type 'DRAFT'
                     timestamp: '2026-10-20T12:10:05Z'
-                    traceId: t0a80123-0011-4444-9999-0123456789ab
+                    traceId: 20a80123-0011-4444-9999-0123456789ab
                 volume_out_of_bounds:
-                  summary: Неприпустимий об'єм тари (AC-001.2)
+                  summary: Неприпустимий об'єм тари
                   value:
                     code: VOLUME_OUT_OF_BOUNDS
                     message: Packaging volume must be strictly between 50 and 10000 ml
@@ -573,19 +543,14 @@ paths:
                     - field: packagings[0].volume_ml
                       issue: Volume 30 ml is below minimum allowed 50 ml
                     timestamp: '2026-10-20T12:10:06Z'
-                    traceId: t0a80123-0012-4444-9999-0123456789ab
+                    traceId: 20a80123-0012-4444-9999-0123456789ab
   /beers/{id}:
     get:
       tags:
       - Catalog
       summary: Отримання картки продукту за ID
-      description: '**REQ-ID:** REQ-F-001, REQ-F-003, REQ-F-010, REQ-NF-008
-
-
-        Повертає повну інформацію про сорт пива. За замовчуванням повертає найновішу запропоновану чернетку версії; якщо передано
-        `verified_only=true`, повертає діючу верифіковану базу (AC-003.3).
-
-        '
+      description: Повертає повну картку сорту пива за його ідентифікатором. За замовчуванням повертає актуальні дані з урахуванням
+        відкритої пропозиції змін; якщо передано параметр `verified_only=true`, повертає останню підтверджену версію.
       operationId: getBeerById
       x-req-id:
       - REQ-F-001
@@ -633,14 +598,14 @@ paths:
                     rating_avg: 4.4
                     reviews_count: 85
                     packagings:
-                    - id: p0a80123-0033-4444-9999-0123456789ab
+                    - id: 30a80123-0033-4444-9999-0123456789ab
                       beer_id: b0a80123-0012-4444-9999-0123456789ab
                       volume_ml: 500
                       package_type: BOTTLE
                       barcode: '4820199990012'
                     created_at: '2026-08-15T10:00:00Z'
         '404':
-          description: Товар не знайдено або він видалений (is_deleted = true)
+          description: Продукт із вказаним ідентифікатором не знайдено
           content:
             application/json:
               schema:
@@ -653,21 +618,15 @@ paths:
                     message: Beer with specified identifier was not found
                     details:
                     - field: id
-                      issue: No active record found for ID 'b0a80123-9999-4444-9999-0123456789ab'
+                      issue: No product found with identifier 'b0a80123-9999-4444-9999-0123456789ab'
                     timestamp: '2026-10-20T12:15:00Z'
-                    traceId: t0a80123-0013-4444-9999-0123456789ab
+                    traceId: 20a80123-0013-4444-9999-0123456789ab
     delete:
       tags:
       - Administration
-      summary: М'яке видалення товару модератором (Soft Delete / Placeholder)
-      description: '**REQ-ID:** REQ-F-010, REQ-NF-008
-
-
-        Виконує soft delete продукту модератором. Запис не знищується фізично: позначається `is_deleted = true`, приховується
-        з пошуку каталогу та вішлістів. В історії споживання користувачів відображається під назвою Placeholder Beer ("Видалений
-        продукт") зі збереженням літражу (AC-010.1, AC-010.2).
-
-        '
+      summary: Вилучення продукту з каталогу модератором
+      description: Вилучає сорт пива з публічного каталогу та списків бажань користувачів. Раніше зафіксовані записи в особистих
+        журналах споживання зберігаються під узагальненою назвою "Видалений продукт" зі збереженням об'єму.
       operationId: deleteBeer
       x-req-id:
       - REQ-F-010
@@ -685,7 +644,7 @@ paths:
           example: b0a80123-0012-4444-9999-0123456789ab
       responses:
         '204':
-          description: Товар успішно позначено як видалений
+          description: Продукт успішно вилучено з каталогу
         '401':
           description: Відсутня автентифікація
           content:
@@ -702,7 +661,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '403':
           description: Доступ дозволено виключно користувачам із роллю MODERATOR
           content:
@@ -719,7 +678,7 @@ paths:
                     - field: role
                       issue: Access denied for role 'USER'
                     timestamp: '2026-10-20T12:20:00Z'
-                    traceId: t0a80123-0014-4444-9999-0123456789ab
+                    traceId: 20a80123-0014-4444-9999-0123456789ab
         '404':
           description: Товар не знайдено
           content:
@@ -734,30 +693,21 @@ paths:
                     message: Resource requested at /beers/{id} was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
   /beers/{id}/versions:
     post:
       tags:
       - Versioning
-      summary: Створення нової чернетки версії продукту (BeerVersion)
-      description: '**REQ-ID:** REQ-F-002, REQ-F-003, REQ-NF-008
+      summary: Створення пропозиції оновлення даних продукту
+      description: |-
+        Реєструє нову версію атрибутів або варіантів пакування для наявного продукту каталогу.
 
-
-        Реєструє пропозицію змін атрибутів або нових пакувань до існуючого товару.
-
-
-        **Правила інваріантів:**
-
-        - Створюється у статусі `UNVERIFIED` із `confirm_votes = 0`, `reject_votes = 0` (AC-003.1);
-
-        - Якщо для даного товару вже є відкрита чернетка у статусі `UNVERIFIED`, запит блокується кодом `409 Conflict` (захист
-        від форків, AC-003.2);
-
-        - Перевіряється унікальність нових штрих-кодів (AC-002.2).
-
-        '
+        **Правила валідації:**
+        - Нова версія створюється у статусі `UNVERIFIED` з нульовими лічильниками голосів;
+        - Якщо для цього продукту вже існує відкрита версія у статусі `UNVERIFIED`, повертається `409 Conflict`;
+        - Штрих-коди нових варіантів пакування мають бути унікальними в межах каталогу.
       operationId: createBeerVersion
       x-req-id:
       - REQ-F-002
@@ -782,7 +732,7 @@ paths:
               $ref: '#/components/schemas/BeerVersionCreateRequest'
             examples:
               add_packaging_version:
-                summary: Додавання нового варіанта тари (відповідає BDD-SCN-002)
+                summary: Додавання нового варіанта тари
                 value:
                   style: India Pale Ale (West Coast)
                   packagings:
@@ -800,9 +750,9 @@ paths:
                 created_version:
                   summary: Створена чернетка v2
                   value:
-                    id: v0a80123-0002-4444-9999-0123456789ab
+                    id: 40a80123-0002-4444-9999-0123456789ab
                     beer_id: b0a80123-0012-4444-9999-0123456789ab
-                    author_id: u0a80123-4201-4444-9999-0123456789ab
+                    author_id: 10a80123-4201-4444-9999-0123456789ab
                     payload:
                       style: India Pale Ale (West Coast)
                       packagings:
@@ -829,7 +779,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '404':
           description: Товар не знайдено
           content:
@@ -844,9 +794,9 @@ paths:
                     message: Resource requested at /beers/{id}/versions was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
         '409':
           description: Конфлікт - для даного товару вже є відкрита активна чернетка UNVERIFIED
           content:
@@ -855,15 +805,15 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
                 concurrent_draft_conflict:
-                  summary: Захист від конкурентних чернеток (AC-003.2)
+                  summary: Захист від конкурентних чернеток
                   value:
                     code: CONCURRENT_DRAFT_CONFLICT
                     message: An active unverified version already exists for this beer product
                     details:
                     - field: beer_id
-                      issue: Pending draft 'v0a80123-0001-4444-9999-0123456789ab' must be resolved first
+                      issue: Pending draft '40a80123-0001-4444-9999-0123456789ab' must be resolved first
                     timestamp: '2026-10-20T12:25:01Z'
-                    traceId: t0a80123-0015-4444-9999-0123456789ab
+                    traceId: 20a80123-0015-4444-9999-0123456789ab
         '422':
           description: Невалідні дані атрибутів або тари
           content:
@@ -877,20 +827,15 @@ paths:
                     code: UNPROCESSABLE_ENTITY
                     message: Provided attributes violated domain business rules
                     details:
-                    - field: payload
-                      issue: Attribute validation constraints failed
+                    - field: abv
+                      issue: Provided value must be between 0.0 and 100.0
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0422-4444-9999-0123456789ab
+                    traceId: 20a80123-0422-4444-9999-0123456789ab
     get:
       tags:
       - Versioning
       summary: Отримання історії версій продукту
-      description: '**REQ-ID:** REQ-F-003, REQ-NF-008
-
-
-        Повертає перелік усіх історичних та діючих версій продукту зі статусами та підсумками голосування.
-
-        '
+      description: Повертає перелік версій вказаного продукту разом зі статусами розгляду та підсумками голосування.
       operationId: listBeerVersions
       x-req-id:
       - REQ-F-003
@@ -918,9 +863,9 @@ paths:
                 version_history:
                   summary: Історія версій продукту
                   value:
-                  - id: v0a80123-0001-4444-9999-0123456789ab
+                  - id: 40a80123-0001-4444-9999-0123456789ab
                     beer_id: b0a80123-0012-4444-9999-0123456789ab
-                    author_id: u0a80123-1111-4444-9999-0123456789ab
+                    author_id: 10a80123-1111-4444-9999-0123456789ab
                     payload:
                       name: Varvar Artisan IPA
                       abv: 6.0
@@ -928,9 +873,9 @@ paths:
                     reject_votes: 0
                     status: VERIFIED
                     created_at: '2026-08-15T10:00:00Z'
-                  - id: v0a80123-0002-4444-9999-0123456789ab
+                  - id: 40a80123-0002-4444-9999-0123456789ab
                     beer_id: b0a80123-0012-4444-9999-0123456789ab
-                    author_id: u0a80123-4201-4444-9999-0123456789ab
+                    author_id: 10a80123-4201-4444-9999-0123456789ab
                     payload:
                       style: India Pale Ale (West Coast)
                     confirm_votes: 4
@@ -951,20 +896,15 @@ paths:
                     message: Resource requested at /beers/{id}/versions was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
   /beer-versions:
     get:
       tags:
       - Versioning
-      summary: Отримання чернеток версій, що очікують голосування
-      description: '**REQ-ID:** REQ-F-003, REQ-F-004, REQ-NF-008
-
-
-        Повертає сторінковий список відкритих чернеток версій у статусі `UNVERIFIED` для участі спільноти в голосуванні.
-
-        '
+      summary: Отримання списку версій продуктів за статусом
+      description: Повертає сторінковий список версій продуктів, відфільтрований за статусом розгляду (за замовчуванням `UNVERIFIED`).
       operationId: listPendingBeerVersions
       x-req-id:
       - REQ-F-003
@@ -1004,34 +944,15 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                - items
-                - page
-                - size
-                - total_elements
-                - total_pages
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/BeerVersionResponse'
-                  page:
-                    type: integer
-                  size:
-                    type: integer
-                  total_elements:
-                    type: integer
-                  total_pages:
-                    type: integer
+                $ref: '#/components/schemas/BeerVersionPagedResponse'
               examples:
                 pending_versions_paged:
                   summary: Чернетки версій, що очікують голосування
                   value:
                     items:
-                    - id: v0a80123-0002-4444-9999-0123456789ab
+                    - id: 40a80123-0002-4444-9999-0123456789ab
                       beer_id: b0a80123-0012-4444-9999-0123456789ab
-                      author_id: u0a80123-4201-4444-9999-0123456789ab
+                      author_id: 10a80123-4201-4444-9999-0123456789ab
                       payload:
                         style: India Pale Ale (West Coast)
                       confirm_votes: 4
@@ -1058,31 +979,20 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
   /beer-versions/{id}/votes:
     post:
       tags:
       - Versioning
-      summary: Голосування за чернетку версії (CONFIRM або REJECT)
-      description: '**REQ-ID:** REQ-F-004, REQ-F-005, REQ-NF-008, REQ-NF-009
-
-
-        Приймає голос спільноти на підтримку (`CONFIRM`) або відхилення (`REJECT`) чернетки версії.
-
+      summary: Голосування за версію продукту (CONFIRM або REJECT)
+      description: |-
+        Реєструє голос користувача на підтвердження (`CONFIRM`) або відхилення (`REJECT`) запропонованої версії продукту.
 
         **Правила голосування:**
-
-        - Автор версії не має права голосувати за власну пропозицію (`403 Forbidden`, AC-004.1);
-
-        - Повторне голосування заборонено (`409 Conflict`, AC-004.2, REQ-NF-009);
-
-        - При накопиченні **5 голосів CONFIRM** версія автоматично переходить у `VERIFIED`, застаріла версія деактивується
-        (AC-005.1, BDD-SCN-002);
-
-        - При накопиченні **5 голосів REJECT** оновлення видаляється (AC-005.2), а новий продукт позначається `REJECTED` і
-        потрапляє в чергу модерації (AC-005.3).
-
-        '
+        - Автор версії не має права голосувати за власну пропозицію (`403 Forbidden`);
+        - Повторне голосування одного користувача за ту саму версію заборонено (`409 Conflict`);
+        - Після накопичення 5 голосів `CONFIRM` версія автоматично переходить у статус `VERIFIED` і стає актуальною в каталозі;
+        - Після накопичення 5 голосів `REJECT` версія переходить у статус `REJECTED`, а новий неперевірений продукт передається в чергу модерації.
       operationId: voteBeerVersion
       x-req-id:
       - REQ-F-004
@@ -1099,7 +1009,7 @@ paths:
         schema:
           type: string
           format: uuid
-          example: v0a80123-0002-4444-9999-0123456789ab
+          example: 40a80123-0002-4444-9999-0123456789ab
       requestBody:
         required: true
         content:
@@ -1108,7 +1018,7 @@ paths:
               $ref: '#/components/schemas/BeerVersionVoteRequest'
             examples:
               confirm_vote:
-                summary: Голос CONFIRM (BDD-SCN-002)
+                summary: Голос CONFIRM
                 value:
                   vote_type: CONFIRM
               reject_vote:
@@ -1124,9 +1034,9 @@ paths:
                 $ref: '#/components/schemas/BeerVersionVoteResponse'
               examples:
                 threshold_reached_verified:
-                  summary: Досягнуто консенсус N=5 голосів (BDD-SCN-002)
+                  summary: Досягнуто консенсус N=5 голосів
                   value:
-                    version_id: v0a80123-0002-4444-9999-0123456789ab
+                    version_id: 40a80123-0002-4444-9999-0123456789ab
                     confirm_votes: 5
                     reject_votes: 0
                     status: VERIFIED
@@ -1134,7 +1044,7 @@ paths:
                 single_vote_counted:
                   summary: Голос зараховано, очікується більше голосів
                   value:
-                    version_id: v0a80123-0002-4444-9999-0123456789ab
+                    version_id: 40a80123-0002-4444-9999-0123456789ab
                     confirm_votes: 3
                     reject_votes: 1
                     status: UNVERIFIED
@@ -1155,7 +1065,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '403':
           description: Автор версії намагається проголосувати за власну чернетку
           content:
@@ -1164,15 +1074,15 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
                 author_self_vote_forbidden:
-                  summary: Заборона автоголосування (AC-004.1)
+                  summary: Заборона автоголосування
                   value:
                     code: SELF_VOTING_FORBIDDEN
                     message: Authors are forbidden from voting on their own proposed versions
                     details:
                     - field: user_id
-                      issue: User is the author of version 'v0a80123-0002-4444-9999-0123456789ab'
+                      issue: User is the author of version '40a80123-0002-4444-9999-0123456789ab'
                     timestamp: '2026-10-20T12:30:00Z'
-                    traceId: t0a80123-0016-4444-9999-0123456789ab
+                    traceId: 20a80123-0016-4444-9999-0123456789ab
         '404':
           description: Версію не знайдено
           content:
@@ -1187,9 +1097,9 @@ paths:
                     message: Resource requested at /beer-versions/{id}/votes was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
         '409':
           description: Користувач уже голосував за цю версію
           content:
@@ -1198,27 +1108,22 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
                 duplicate_vote_conflict:
-                  summary: Повторне голосування користувача (AC-004.2)
+                  summary: Повторне голосування користувача
                   value:
                     code: DUPLICATE_VOTE_CONFLICT
                     message: User has already cast a vote for this version
                     details:
-                    - field: user_id
-                      issue: Unique constraint (user_id, version_id) violated
+                    - field: id
+                      issue: A vote from the current user has already been recorded for this version
                     timestamp: '2026-10-20T12:30:01Z'
-                    traceId: t0a80123-0017-4444-9999-0123456789ab
+                    traceId: 20a80123-0017-4444-9999-0123456789ab
   /beer-versions/{id}/verify:
     post:
       tags:
       - Moderation
-      summary: Ручна верифікація версії модератором
-      description: '**REQ-ID:** REQ-F-013, REQ-NF-008
-
-
-        Миттєво переводить версію у статус `VERIFIED` в обхід краудсорсингу. Стає діючою версією каталогу, застаріла версія
-        деактивується (AC-013.1). Доступно виключно для `MODERATOR`.
-
-        '
+      summary: Ручне підтвердження версії модератором
+      description: Переводить запропоновану версію у статус `VERIFIED` та робить її актуальною в каталозі без очікування голосування
+        спільноти. Доступно виключно користувачам із роллю `MODERATOR`.
       operationId: verifyBeerVersion
       x-req-id:
       - REQ-F-013
@@ -1233,7 +1138,7 @@ paths:
         schema:
           type: string
           format: uuid
-          example: v0a80123-0002-4444-9999-0123456789ab
+          example: 40a80123-0002-4444-9999-0123456789ab
       responses:
         '200':
           description: Версію успішно верифіковано модератором
@@ -1245,9 +1150,9 @@ paths:
                 manually_verified:
                   summary: Версія верифікована модератором
                   value:
-                    id: v0a80123-0002-4444-9999-0123456789ab
+                    id: 40a80123-0002-4444-9999-0123456789ab
                     beer_id: b0a80123-0012-4444-9999-0123456789ab
-                    author_id: u0a80123-4201-4444-9999-0123456789ab
+                    author_id: 10a80123-4201-4444-9999-0123456789ab
                     payload:
                       style: India Pale Ale (West Coast)
                     confirm_votes: 5
@@ -1270,7 +1175,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '403':
           description: Недостатньо прав (потрібна роль MODERATOR)
           content:
@@ -1287,7 +1192,7 @@ paths:
                     - field: role
                       issue: Operation requires elevated permissions or business precondition
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0403-4444-9999-0123456789ab
+                    traceId: 20a80123-0403-4444-9999-0123456789ab
         '404':
           description: Версію не знайдено
           content:
@@ -1302,21 +1207,16 @@ paths:
                     message: Resource requested at /beer-versions/{id}/verify was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
   /beer-versions/{id}/reject:
     post:
       tags:
       - Moderation
-      summary: Ручне відхилення чернетки версії модератором
-      description: '**REQ-ID:** REQ-F-013, REQ-NF-008
-
-
-        Миттєво переводить версію у статус `REJECTED` та деактивує її в обхід краудсорсингу (AC-013.2). Розблоковує продукт
-        для створення нових чернеток.
-
-        '
+      summary: Ручне відхилення версії модератором
+      description: Переводить запропоновану версію у статус `REJECTED`, розблоковуючи можливість подання нових пропозицій
+        змін для продукту. Доступно виключно користувачам із роллю `MODERATOR`.
       operationId: rejectBeerVersion
       x-req-id:
       - REQ-F-013
@@ -1331,7 +1231,7 @@ paths:
         schema:
           type: string
           format: uuid
-          example: v0a80123-0002-4444-9999-0123456789ab
+          example: 40a80123-0002-4444-9999-0123456789ab
       requestBody:
         required: false
         content:
@@ -1354,9 +1254,9 @@ paths:
                 manually_rejected:
                   summary: Версія відхилена модератором
                   value:
-                    id: v0a80123-0002-4444-9999-0123456789ab
+                    id: 40a80123-0002-4444-9999-0123456789ab
                     beer_id: b0a80123-0012-4444-9999-0123456789ab
-                    author_id: u0a80123-4201-4444-9999-0123456789ab
+                    author_id: 10a80123-4201-4444-9999-0123456789ab
                     payload:
                       style: India Pale Ale (West Coast)
                     confirm_votes: 1
@@ -1379,7 +1279,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '403':
           description: Доступ дозволено тільки для MODERATOR
           content:
@@ -1396,7 +1296,7 @@ paths:
                     - field: role
                       issue: Operation requires elevated permissions or business precondition
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0403-4444-9999-0123456789ab
+                    traceId: 20a80123-0403-4444-9999-0123456789ab
         '404':
           description: Версію не знайдено
           content:
@@ -1411,21 +1311,15 @@ paths:
                     message: Resource requested at /beer-versions/{id}/reject was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
   /moderation-items/queue:
     get:
       tags:
       - Moderation
       summary: Перегляд черги модерації відхилених продуктів
-      description: '**REQ-ID:** REQ-F-014, REQ-NF-008
-
-
-        Повертає перелік нових товарів зі статусом `REJECTED`, які набрали 5 Reject голосів або очікують ручного аудиту (AC-014.1).
-        Доступно тільки модераторам.
-
-        '
+      description: Повертає сторінковий список нових продуктів зі статусом `REJECTED`, що очікують остаточного рішення модератора.
       operationId: listModerationQueue
       x-req-id:
       - REQ-F-014
@@ -1491,7 +1385,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '403':
           description: Доступ виключно для ролі MODERATOR
           content:
@@ -1508,22 +1402,16 @@ paths:
                     - field: role
                       issue: Operation requires elevated permissions or business precondition
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0403-4444-9999-0123456789ab
+                    traceId: 20a80123-0403-4444-9999-0123456789ab
   /moderation-items/{id}/decision:
     post:
       tags:
       - Moderation
       summary: Прийняття рішення щодо елемента черги модерації
-      description: '**REQ-ID:** REQ-F-014, REQ-NF-008
-
-
-        Модератор затверджує рішення щодо відхиленого продукту:
-
-        - `APPROVE` — схвалення (переведення в статус `VERIFIED`);
-
-        - `PERMANENT_DELETE` — повне безповоротне видалення запису з бази даних (AC-014.2).
-
-        '
+      description: |-
+        Застосовує рішення модератора щодо відхиленого продукту:
+        - `APPROVE` — публікація продукту в каталозі зі статусом `VERIFIED`;
+        - `PERMANENT_DELETE` — остаточне вилучення відхиленого продукту без публікації в каталозі.
       operationId: resolveModerationQueueItem
       x-req-id:
       - REQ-F-014
@@ -1586,7 +1474,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '403':
           description: Доступ лише для MODERATOR
           content:
@@ -1603,7 +1491,7 @@ paths:
                     - field: role
                       issue: Operation requires elevated permissions or business precondition
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0403-4444-9999-0123456789ab
+                    traceId: 20a80123-0403-4444-9999-0123456789ab
         '404':
           description: Товар не знайдено
           content:
@@ -1618,9 +1506,9 @@ paths:
                     message: Resource requested at /moderation-items/{id}/decision was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
         '422':
           description: Неприпустиме значення decision
           content:
@@ -1634,29 +1522,21 @@ paths:
                     code: UNPROCESSABLE_ENTITY
                     message: Provided attributes violated domain business rules
                     details:
-                    - field: payload
-                      issue: Attribute validation constraints failed
+                    - field: abv
+                      issue: Provided value must be between 0.0 and 100.0
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0422-4444-9999-0123456789ab
+                    traceId: 20a80123-0422-4444-9999-0123456789ab
   /merges:
     post:
       tags:
       - Administration
-      summary: Злиття сортів-дублікатів (Merge)
-      description: '**REQ-ID:** REQ-F-011, REQ-NF-007, REQ-NF-008
-
-
-        Адміністративна транзакційна операція об''єднання дубліката `source_beer_id` з канонічним товаром `target_beer_id`:
-
-        - Мапінг та створення відсутніх пакувань (AC-011.1);
-
-        - Атомарна переприв''язка записів споживання `ConsumptionEntry` (AC-011.2);
-
-        - Архівація старіших дублікатів відгуків (`is_archived = true`, AC-011.3);
-
-        - Встановлення `status = MERGED`, `is_deleted = true`, `merged_into_beer_id = target_beer_id` (AC-011.4).
-
-        '
+      summary: Об'єднання продукту-дубліката з основним продуктом
+      description: |-
+        Об'єднує продукт-дублікат `source_beer_id` із цільовим продуктом `target_beer_id`:
+        - Додає відсутні варіанти пакування з дубліката до цільового продукту;
+        - Переносить записи споживання користувачів на цільовий продукт та відповідні варіанти пакування;
+        - Якщо користувач залишав відгуки на обидва продукти, актуальним залишається новіший відгук;
+        - Вилучає продукт-дублікат з активного каталогу.
       operationId: mergeBeers
       x-req-id:
       - REQ-F-011
@@ -1678,7 +1558,7 @@ paths:
                   target_beer_id: b0a80123-0012-4444-9999-0123456789ab
       responses:
         '200':
-          description: Злиття успішно виконано в межах ACID-транзакції
+          description: Продукт-дублікат успішно об'єднано з цільовим продуктом
           content:
             application/json:
               schema:
@@ -1708,7 +1588,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '403':
           description: Доступ виключно для MODERATOR
           content:
@@ -1725,7 +1605,7 @@ paths:
                     - field: role
                       issue: Operation requires elevated permissions or business precondition
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0403-4444-9999-0123456789ab
+                    traceId: 20a80123-0403-4444-9999-0123456789ab
         '404':
           description: Товар source або target не знайдено
           content:
@@ -1740,9 +1620,9 @@ paths:
                     message: Resource requested at /merges was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
         '422':
           description: Спроба злити товар сам із собою
           content:
@@ -1759,19 +1639,14 @@ paths:
                     - field: target_beer_id
                       issue: Target beer cannot be identical to source beer
                     timestamp: '2026-10-20T12:40:00Z'
-                    traceId: t0a80123-0018-4444-9999-0123456789ab
+                    traceId: 20a80123-0018-4444-9999-0123456789ab
   /consumption-entries:
     get:
       tags:
       - Consumption
       summary: Отримання журналу споживання поточного користувача
-      description: '**REQ-ID:** REQ-F-006, REQ-F-010, REQ-NF-005, REQ-NF-008
-
-
-        Повертає сторінковий список записів фактів споживання користувача. Дані є строго приватними; видалені сорти пива повертаються
-        під назвою "Видалений продукт" (Placeholder Beer).
-
-        '
+      description: Повертає сторінковий список особистих записів споживання поточного користувача. Якщо сорт пива було вилучено
+        з каталогу модератором, у записі відображається назва "Видалений продукт" зі збереженням об'єму.
       operationId: listConsumptionEntries
       x-req-id:
       - REQ-F-006
@@ -1833,7 +1708,7 @@ paths:
                     items:
                     - id: c0a80123-9901-4444-9999-0123456789ab
                       beer_id: b0a80123-0001-4444-9999-0123456789ab
-                      packaging_id: p0a80123-0001-4444-9999-0123456789ab
+                      packaging_id: 30a80123-0001-4444-9999-0123456789ab
                       quantity: 2
                       total_volume_ml: 1000
                       consumed_at: '2026-09-20T20:30:00Z'
@@ -1864,32 +1739,19 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
     post:
       tags:
       - Consumption
-      summary: Фіксація факту споживання (Append-Only Log)
-      description: '**REQ-ID:** REQ-F-006, REQ-F-009, REQ-NF-003, REQ-NF-007, REQ-NF-008
+      summary: Реєстрація факту споживання
+      description: |-
+        Створює новий незмінний запис у журналі споживання поточного користувача.
 
-
-        Незмінний запис споживання напою.
-
-
-        **Бізнес-правила та автоматичні дії:**
-
-        - Сервер обчислює `total_volume_ml = quantity * volume_ml` (AC-006.1, BDD-SCN-001);
-
-        - Час `consumed_at` не може бути в майбутньому (AC-006.2);
-
-        - Час `consumed_at` не може бути раніше дати реєстрації або старішим 1 року (AC-006.3);
-
-        - Кількість $1 \le \text{quantity} \le 100$ (AC-006.4);
-
-        - Автоматичне поповнення `Collection` скуштованого пива (AC-009.1);
-
-        - Автоматичне безповоротне видалення товару з `Wishlist` у тій же транзакції (AC-009.2).
-
-        '
+        **Правила валідації та синхронізації списків:**
+        - Підсумковий об'єм `total_volume_ml` розраховується як добуток `quantity * volume_ml`;
+        - Час `consumed_at` не може бути в майбутньому, ранішим за момент реєстрації користувача або старішим за 1 рік;
+        - Кількість порцій `quantity` має перебувати в межах від 1 до 100 включно;
+        - Продукт автоматично додається до дегустаційної колекції користувача та видаляється зі списку бажань, якщо він там перебував.
       operationId: recordConsumptionEntry
       x-req-id:
       - REQ-F-006
@@ -1907,10 +1769,10 @@ paths:
               $ref: '#/components/schemas/ConsumptionEntryCreateRequest'
             examples:
               mova_consumption:
-                summary: Споживання двох банок Mova Dark Stout (відповідає BDD-SCN-001)
+                summary: Споживання двох банок Mova Dark Stout
                 value:
                   beer_id: b0a80123-0001-4444-9999-0123456789ab
-                  packaging_id: p0a80123-0001-4444-9999-0123456789ab
+                  packaging_id: 30a80123-0001-4444-9999-0123456789ab
                   quantity: 2
                   consumed_at: '2026-09-20T20:30:00Z'
       responses:
@@ -1922,11 +1784,11 @@ paths:
                 $ref: '#/components/schemas/ConsumptionEntryResponse'
               examples:
                 mova_created_entry:
-                  summary: Створений запис споживання (BDD-SCN-001)
+                  summary: Створений запис споживання
                   value:
                     id: c0a80123-9901-4444-9999-0123456789ab
                     beer_id: b0a80123-0001-4444-9999-0123456789ab
-                    packaging_id: p0a80123-0001-4444-9999-0123456789ab
+                    packaging_id: 30a80123-0001-4444-9999-0123456789ab
                     quantity: 2
                     total_volume_ml: 1000
                     consumed_at: '2026-09-20T20:30:00Z'
@@ -1951,7 +1813,7 @@ paths:
                     - field: request
                       issue: Request could not be parsed by the server
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0400-4444-9999-0123456789ab
+                    traceId: 20a80123-0400-4444-9999-0123456789ab
         '401':
           description: Відсутня автентифікація
           content:
@@ -1968,7 +1830,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '404':
           description: Товар або пакування не знайдено
           content:
@@ -1983,9 +1845,9 @@ paths:
                     message: Resource requested at /consumption-entries was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
         '422':
           description: Порушення валідації часу або кількості споживання
           content:
@@ -1994,7 +1856,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
                 future_time_error:
-                  summary: Час у майбутньому (AC-006.2)
+                  summary: Час у майбутньому
                   value:
                     code: CONSUMPTION_TIME_IN_FUTURE
                     message: consumed_at timestamp cannot be in the future
@@ -2002,9 +1864,9 @@ paths:
                     - field: consumed_at
                       issue: Timestamp is ahead of current server time
                     timestamp: '2026-10-20T12:45:00Z'
-                    traceId: t0a80123-0019-4444-9999-0123456789ab
+                    traceId: 20a80123-0019-4444-9999-0123456789ab
                 quantity_invalid:
-                  summary: Некоректна кількість одиниць (AC-006.4)
+                  summary: Некоректна кількість одиниць
                   value:
                     code: INVALID_QUANTITY
                     message: Quantity must be an integer between 1 and 100
@@ -2012,21 +1874,24 @@ paths:
                     - field: quantity
                       issue: Quantity 0 is less than minimum allowed 1
                     timestamp: '2026-10-20T12:45:01Z'
-                    traceId: t0a80123-0020-4444-9999-0123456789ab
+                    traceId: 20a80123-0020-4444-9999-0123456789ab
   /consumption-entries/{id}:
-    put:
+    get:
       tags:
       - Consumption
-      summary: Заборона модифікації запису споживання (Append-Only)
-      description: '**REQ-ID:** REQ-F-007, REQ-NF-008
+      summary: Отримання окремого запису споживання за ID
+      description: |-
+        Повертає деталі конкретного запису споживання поточного користувача.
 
-
-        Записи журналу споживання є незмінними. Спроба виклику PUT повертає статус `405 Method Not Allowed` (AC-007.1, BDD-SCN-005).
-
-        '
-      operationId: putConsumptionEntryNotAllowed
+        **Правила доступу та незмінності:**
+        - Звернення до неіснуючого ідентифікатора або запису іншого користувача повертає `404 Not Found`;
+        - Записи журналу споживання є незмінними: методи `PUT`, `PATCH` та `DELETE` для ресурсу `/consumption-entries/{id}` не підтримуються і повертають `405 Method Not Allowed`.
+      operationId: getConsumptionEntryById
       x-req-id:
+      - REQ-F-006
       - REQ-F-007
+      - REQ-F-010
+      - REQ-NF-005
       - REQ-NF-008
       security:
       - BearerAuth: []
@@ -2034,90 +1899,94 @@ paths:
       - name: id
         in: path
         required: true
-        description: Ідентифікатор запису споживання
+        description: Унікальний ідентифікатор запису споживання (UUID)
         schema:
           type: string
           format: uuid
-          example: c0a80123-0001-4444-9999-0123456789ab
+          example: c0a80123-9901-4444-9999-0123456789ab
       responses:
-        '405':
-          description: Модифікація записів споживання суворо заборонена
+        '200':
+          description: Запис споживання успішно знайдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumptionEntryResponse'
+              examples:
+                consumption_entry_detail:
+                  summary: Власний запис споживання Mova Dark Stout
+                  value:
+                    id: c0a80123-9901-4444-9999-0123456789ab
+                    beer_id: b0a80123-0001-4444-9999-0123456789ab
+                    packaging_id: 30a80123-0001-4444-9999-0123456789ab
+                    quantity: 2
+                    total_volume_ml: 1000
+                    consumed_at: '2026-09-20T20:30:00Z'
+                    created_at: '2026-09-20T20:30:01Z'
+                    wishlist_autoremoved: true
+                    collection_added: true
+                    beer_name: Mova Dark Stout
+                    packaging_volume_ml: 500
+        '401':
+          description: Відсутня автентифікація
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
-                put_not_allowed:
-                  summary: Відхилення PUT запиту (BDD-SCN-005)
+                error_401_getConsumptionEntryById:
+                  summary: Відсутній або прострочений Bearer токен
+                  value:
+                    code: UNAUTHORIZED
+                    message: Full authentication is required to access this resource
+                    details:
+                    - field: Authorization
+                      issue: Missing or invalid Bearer JWT token
+                    timestamp: '2026-10-20T18:00:00Z'
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
+        '404':
+          description: Запис споживання не знайдено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                foreign_or_missing_entry_not_found:
+                  summary: Запис відсутній або належить іншому користувачу
+                  value:
+                    code: CONSUMPTION_ENTRY_NOT_FOUND
+                    message: Consumption entry with specified identifier was not found
+                    details:
+                    - field: id
+                      issue: No accessible consumption entry found for provided ID
+                    timestamp: '2026-10-20T18:00:00Z'
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
+        '405':
+          description: Редагування та видалення записів журналу споживання заборонено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                append_only_method_not_allowed:
+                  summary: Відхилення модифікації/видалення запису споживання
                   value:
                     code: METHOD_NOT_ALLOWED
-                    message: Consumption entries are immutable (Append-Only) and cannot be updated or modified
+                    message: Consumption entries are immutable (Append-Only) and cannot be updated or deleted
                     details:
                     - field: http_method
-                      issue: HTTP PUT method is strictly forbidden on /consumption-entries
+                      issue: Mutating HTTP methods (PUT, PATCH, DELETE) are strictly forbidden
                     timestamp: '2026-10-20T12:50:00Z'
-                    traceId: t0a80123-0021-4444-9999-0123456789ab
-    delete:
-      tags:
-      - Consumption
-      summary: Заборона видалення запису споживання (Append-Only)
-      description: '**REQ-ID:** REQ-F-007, REQ-NF-008
-
-
-        Записи журналу споживання є незмінними. Спроба виклику DELETE повертає статус `405 Method Not Allowed` (AC-007.1,
-        BDD-SCN-005).
-
-        '
-      operationId: deleteConsumptionEntryNotAllowed
-      x-req-id:
-      - REQ-F-007
-      - REQ-NF-008
-      security:
-      - BearerAuth: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        description: Ідентифікатор запису споживання
-        schema:
-          type: string
-          format: uuid
-          example: c0a80123-0001-4444-9999-0123456789ab
-      responses:
-        '405':
-          description: Видалення записів споживання суворо заборонено
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                delete_not_allowed:
-                  summary: Відхилення DELETE запиту (BDD-SCN-005)
-                  value:
-                    code: METHOD_NOT_ALLOWED
-                    message: Consumption entries are immutable (Append-Only) and cannot be deleted
-                    details:
-                    - field: http_method
-                      issue: HTTP DELETE method is strictly forbidden on /consumption-entries
-                    timestamp: '2026-10-20T12:50:01Z'
-                    traceId: t0a80123-0022-4444-9999-0123456789ab
+                    traceId: 20a80123-0021-4444-9999-0123456789ab
   /analytics/consumption:
     get:
       tags:
       - Analytics
-      summary: Отримання календаря, стріків та погодинного розподілу споживання
-      description: '**REQ-ID:** REQ-F-012, REQ-NF-002, REQ-NF-008
-
-
-        Розраховує агреговані метрики споживання користувача з прив''язкою до його зареєстрованого IANA часового поясу:
-
-        - Доба розраховується як інтервал $[00:00:00.000, 24:00:00.000)$ (Day Boundary, AC-012.1);
-
-        - `Current Streak` — кількість послідовних днів, що завершуються сьогодні або вчора (AC-012.2);
-
-        - Погодинний профіль споживання для годин $0..23$ із розрахунком середнього історичного об''єму (AC-012.3, AC-012.4).
-
-        '
+      summary: Отримання персональної аналітики споживання
+      description: |-
+        Повертає агреговані показники споживання користувача з урахуванням його часового поясу IANA:
+        - Календарна доба визначається як інтервал `[00:00:00.000, 24:00:00.000)` у часовому поясі користувача;
+        - `current_streak` відображає кількість послідовних днів споживання, що завершуються сьогодні або вчора;
+        - `hourly_profile` містить погодинний розподіл споживання для кожної години доби `0..23`.
       operationId: getConsumptionAnalytics
       x-req-id:
       - REQ-F-012
@@ -2189,7 +2058,7 @@ paths:
                     - field: request
                       issue: Request could not be parsed by the server
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0400-4444-9999-0123456789ab
+                    traceId: 20a80123-0400-4444-9999-0123456789ab
         '401':
           description: Відсутня автентифікація
           content:
@@ -2206,18 +2075,13 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
   /streaks:
     get:
       tags:
       - Analytics
-      summary: Отримання інформації про поточну та максимальну серії днів
-      description: '**REQ-ID:** REQ-F-012, REQ-NF-002, REQ-NF-008
-
-
-        Повертає поточний та рекордний стріки користувача в його таймзоні.
-
-        '
+      summary: Отримання поточної та рекордної серій днів споживання
+      description: Повертає показники поточної та найдовшої серій послідовних днів споживання у часовому поясі користувача.
       operationId: getStreaks
       x-req-id:
       - REQ-F-012
@@ -2256,29 +2120,19 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
   /beers/{id}/reviews:
     post:
       tags:
       - Reviews
       summary: Публікація дегустаційного відгуку на сорт пива
-      description: '**REQ-ID:** REQ-F-008, REQ-NF-008
-
-
-        Створює новий відгук на сорт пива.
-
+      description: |-
+        Створює новий дегустаційний відгук поточного користувача на сорт пива.
 
         **Правила валідації:**
-
-        - Відгук дозволено публікувати виключно після фіксації хоча б одного факту споживання цього товару користувачем (`403
-        Forbidden`, AC-008.1, BDD-SCN-003);
-
-        - Оцінка від 1.0 до 5.0 із фіксованим кроком 0.5 (AC-008.2);
-
-        - Користувач може мати лише один активний відгук на товар; якщо відгук уже існує, повертається `409 Conflict` (для
-        зміни слід використовувати PUT, AC-008.3).
-
-        '
+        - Опублікувати відгук можна лише за наявності хоча б одного запису споживання цього продукту користувачем (`403 Forbidden`);
+        - Оцінка `rating` приймає значення від 1.0 до 5.0 із фіксованим кроком 0.5;
+        - Користувач може мати лише один відгук на продукт; якщо відгук уже створено, повертається `409 Conflict` (для редагування використовується метод `PUT`).
       operationId: createReview
       x-req-id:
       - REQ-F-008
@@ -2317,12 +2171,11 @@ paths:
                 created_review:
                   summary: Опублікований відгук
                   value:
-                    id: r0a80123-0001-4444-9999-0123456789ab
+                    id: 50a80123-0001-4444-9999-0123456789ab
                     beer_id: b0a80123-0001-4444-9999-0123456789ab
-                    user_id: u0a80123-4201-4444-9999-0123456789ab
+                    user_id: 10a80123-4201-4444-9999-0123456789ab
                     rating: 4.5
                     review_text: Чудовий насичений вівсяний стаут, виражений смак шоколаду
-                    is_archived: false
                     created_at: '2026-10-20T13:00:00Z'
                     updated_at: '2026-10-20T13:00:00Z'
         '401':
@@ -2341,7 +2194,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '403':
           description: Відхилено - відсутній факт споживання цього пива в користувача
           content:
@@ -2350,7 +2203,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
                 consumption_required_error:
-                  summary: Відсутність споживання товару (BDD-SCN-003)
+                  summary: Відсутність споживання товару
                   value:
                     code: ERR_CONSUMPTION_REQUIRED
                     message: User cannot review beer without at least one confirmed consumption entry
@@ -2358,7 +2211,7 @@ paths:
                     - field: beer_id
                       issue: No consumption history recorded for Underwood Kyiv Lager
                     timestamp: '2026-10-20T13:00:01Z'
-                    traceId: t0a80123-0023-4444-9999-0123456789ab
+                    traceId: 20a80123-0023-4444-9999-0123456789ab
         '404':
           description: Товар не знайдено
           content:
@@ -2373,9 +2226,9 @@ paths:
                     message: Resource requested at /beers/{id}/reviews was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
         '409':
           description: Відгук на цей товар уже існує в користувача
           content:
@@ -2392,7 +2245,7 @@ paths:
                     - field: beer_id
                       issue: Only one active review is permitted per user and beer
                     timestamp: '2026-10-20T13:00:02Z'
-                    traceId: t0a80123-0024-4444-9999-0123456789ab
+                    traceId: 20a80123-0024-4444-9999-0123456789ab
         '422':
           description: Невалідна оцінка або перевищено довжину тексту
           content:
@@ -2401,7 +2254,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
                 invalid_rating_step:
-                  summary: Невірний крок оцінки (AC-008.2)
+                  summary: Невірний крок оцінки
                   value:
                     code: INVALID_RATING_VALUE
                     message: Rating must be between 1.0 and 5.0 with step 0.5
@@ -2409,17 +2262,12 @@ paths:
                     - field: rating
                       issue: Rating 4.3 is invalid; allowed values are 1.0, 1.5, ..., 5.0
                     timestamp: '2026-10-20T13:00:03Z'
-                    traceId: t0a80123-0025-4444-9999-0123456789ab
+                    traceId: 20a80123-0025-4444-9999-0123456789ab
     put:
       tags:
       - Reviews
       summary: Оновлення наявного дегустаційного відгуку
-      description: '**REQ-ID:** REQ-F-008, REQ-NF-008
-
-
-        Оновлює оцінку та текст раніше створеного активного відгуку поточного користувача.
-
-        '
+      description: Оновлює оцінку та текст раніше створеного відгуку поточного користувача на вказаний сорт пива.
       operationId: updateReview
       x-req-id:
       - REQ-F-008
@@ -2458,12 +2306,11 @@ paths:
                 modified_review:
                   summary: Результат оновлення відгуку
                   value:
-                    id: r0a80123-0001-4444-9999-0123456789ab
+                    id: 50a80123-0001-4444-9999-0123456789ab
                     beer_id: b0a80123-0001-4444-9999-0123456789ab
-                    user_id: u0a80123-4201-4444-9999-0123456789ab
+                    user_id: 10a80123-4201-4444-9999-0123456789ab
                     rating: 5.0
                     review_text: Після повторної дегустації - оцінка максимальна! Чудовий баланс.
-                    is_archived: false
                     created_at: '2026-10-20T13:00:00Z'
                     updated_at: '2026-10-20T13:10:00Z'
         '401':
@@ -2482,7 +2329,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '404':
           description: Відгук для оновлення не знайдено
           content:
@@ -2499,7 +2346,7 @@ paths:
                     - field: beer_id
                       issue: Use POST to create a review first
                     timestamp: '2026-10-20T13:10:01Z'
-                    traceId: t0a80123-0026-4444-9999-0123456789ab
+                    traceId: 20a80123-0026-4444-9999-0123456789ab
         '422':
           description: Невалідна оцінка
           content:
@@ -2513,20 +2360,15 @@ paths:
                     code: UNPROCESSABLE_ENTITY
                     message: Provided attributes violated domain business rules
                     details:
-                    - field: payload
-                      issue: Attribute validation constraints failed
+                    - field: abv
+                      issue: Provided value must be between 0.0 and 100.0
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0422-4444-9999-0123456789ab
+                    traceId: 20a80123-0422-4444-9999-0123456789ab
     delete:
       tags:
       - Reviews
-      summary: Видалення власного відгуку
-      description: '**REQ-ID:** REQ-F-008, REQ-NF-008
-
-
-        Видаляє відгук поточного користувача на вказаний сорт пива.
-
-        '
+      summary: Видалення власного дегустаційного відгуку
+      description: Видаляє відгук поточного користувача на вказаний сорт пива.
       operationId: deleteReview
       x-req-id:
       - REQ-F-008
@@ -2561,7 +2403,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '404':
           description: Відгук не знайдено
           content:
@@ -2576,20 +2418,15 @@ paths:
                     message: Resource requested at /beers/{id}/reviews was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
   /wishlist-items:
     get:
       tags:
       - Collection & Wishlist
       summary: Отримання списку бажань користувача
-      description: '**REQ-ID:** REQ-F-009, REQ-NF-005, REQ-NF-008
-
-
-        Повертає список товарів у персональному списку бажань користувача. Дані є строго приватними.
-
-        '
+      description: Повертає сторінковий список продуктів у персональному списку бажань поточного користувача.
       operationId: listWishlistItems
       x-req-id:
       - REQ-F-009
@@ -2625,7 +2462,7 @@ paths:
                   summary: Збережений сорт пива у списку бажань
                   value:
                     items:
-                    - id: w0a80123-0001-4444-9999-0123456789ab
+                    - id: 60a80123-0001-4444-9999-0123456789ab
                       beer_id: b0a80123-0001-4444-9999-0123456789ab
                       added_at: '2026-09-18T15:00:00Z'
                       beer:
@@ -2658,18 +2495,13 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
   /wishlist-items/{beer_id}:
     post:
       tags:
       - Collection & Wishlist
       summary: Додавання продукту до списку бажань
-      description: '**REQ-ID:** REQ-F-009, REQ-NF-005, REQ-NF-008
-
-
-        Додає сорт пива до списку бажань користувача.
-
-        '
+      description: Додає вказаний сорт пива до персонального списку бажань поточного користувача.
       operationId: addWishlistItem
       x-req-id:
       - REQ-F-009
@@ -2697,7 +2529,7 @@ paths:
                 wishlist_added:
                   summary: Товар додано до вішліста
                   value:
-                    id: w0a80123-0001-4444-9999-0123456789ab
+                    id: 60a80123-0001-4444-9999-0123456789ab
                     beer_id: b0a80123-0001-4444-9999-0123456789ab
                     added_at: '2026-09-18T15:00:00Z'
         '401':
@@ -2716,9 +2548,9 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '404':
-          description: Товар не знайдено або видалений
+          description: Продукт не знайдено в каталозі
           content:
             application/json:
               schema:
@@ -2731,9 +2563,9 @@ paths:
                     message: Resource requested at /wishlist-items/{beer_id} was not found
                     details:
                     - field: id
-                      issue: No active entity exists with the specified identifier
+                      issue: Requested resource with the specified identifier was not found
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0404-4444-9999-0123456789ab
+                    traceId: 20a80123-0404-4444-9999-0123456789ab
         '409':
           description: Товар уже перебуває у списку бажань
           content:
@@ -2750,18 +2582,13 @@ paths:
                     - field: beer_id
                       issue: Duplicate entry for user wishlist
                     timestamp: '2026-10-20T13:20:00Z'
-                    traceId: t0a80123-0027-4444-9999-0123456789ab
+                    traceId: 20a80123-0027-4444-9999-0123456789ab
     delete:
       tags:
       - Collection & Wishlist
-      summary: Ручне видалення товару зі списку бажань
-      description: '**REQ-ID:** REQ-F-009, REQ-NF-005, REQ-NF-008
-
-
-        Видаляє товар зі списку бажань. Якщо товар не був у списку поточного користувача — повертає `404 Not Found` (забезпечення
-        ізоляції OWASP, REQ-NF-005).
-
-        '
+      summary: Видалення продукту зі списку бажань
+      description: Видаляє продукт із персонального списку бажань поточного користувача. Якщо вказаного продукту немає у списку
+        бажань користувача, повертається `404 Not Found`.
       operationId: removeWishlistItem
       x-req-id:
       - REQ-F-009
@@ -2797,7 +2624,7 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
         '404':
           description: Товар не знайдено у списку бажань користувача
           content:
@@ -2814,19 +2641,14 @@ paths:
                     - field: beer_id
                       issue: No matching wishlist item found
                     timestamp: '2026-10-20T13:20:01Z'
-                    traceId: t0a80123-0028-4444-9999-0123456789ab
+                    traceId: 20a80123-0028-4444-9999-0123456789ab
   /collections/tasted:
     get:
       tags:
       - Collection & Wishlist
-      summary: Перегляд віртуальної дегустаційної колекції (Tasted Collection)
-      description: '**REQ-ID:** REQ-F-009, REQ-NF-005, REQ-NF-008
-
-
-        Повертає список усіх унікальних сортів пива, які користувач коли-небудь споживав (віртуальна проекція над журналом
-        `ConsumptionEntry`).
-
-        '
+      summary: Перегляд дегустаційної колекції скуштованих сортів пива
+      description: Повертає сторінковий список унікальних сортів пива, які споживав поточний користувач, разом із сумарним
+        об'ємом, датами першого й останнього споживання та особистою оцінкою.
       operationId: getTastedCollection
       x-req-id:
       - REQ-F-009
@@ -2895,18 +2717,18 @@ paths:
                     - field: Authorization
                       issue: Missing or invalid Bearer JWT token
                     timestamp: '2026-10-20T18:00:00Z'
-                    traceId: t0a80123-0401-4444-9999-0123456789ab
+                    traceId: 20a80123-0401-4444-9999-0123456789ab
 components:
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Stateless JSON Web Token у заголовку Bearer authorization
+      description: Токен доступу формату JWT у заголовку Authorization за схемою Bearer
   schemas:
     ErrorResponse:
       type: object
-      description: Єдина стандартизована схема повернення помилок 4xx та 5xx (згідно з RFC 7807 та специфікацією)
+      description: Єдина стандартизована модель помилки для всіх відповідей 4xx та 5xx
       required:
       - code
       - message
@@ -2935,7 +2757,7 @@ components:
         traceId:
           type: string
           format: uuid
-          description: Унікальний ідентифікатор трасування запиту (MDC trace_id)
+          description: Унікальний ідентифікатор запиту для трасування та діагностики
           example: c0a80123-7777-4444-9999-0123456789ab
     ErrorDetail:
       type: object
@@ -2954,7 +2776,7 @@ components:
           example: Quantity must be an integer between 1 and 100
     UserRegisterRequest:
       type: object
-      description: DTO запиту на реєстрацію нового користувача
+      description: Дані запиту на реєстрацію нового користувача
       required:
       - email
       - password
@@ -2978,7 +2800,7 @@ components:
           example: Europe/Kyiv
     UserLoginRequest:
       type: object
-      description: DTO запиту на отримання токенів
+      description: Дані запиту для автентифікації користувача
       required:
       - email
       - password
@@ -2993,17 +2815,17 @@ components:
           example: SuperSecretPassword123!
     RefreshTokenRequest:
       type: object
-      description: DTO запиту на оновлення токенів
+      description: Дані запиту на оновлення пари токенів доступу
       required:
       - refresh_token
       properties:
         refresh_token:
           type: string
           description: Діючий одноразовий Refresh токен
-          example: r0a80123-9999-4444-8888-0123456789ab
+          example: 50a80123-9999-4444-8888-0123456789ab
     TokenResponse:
       type: object
-      description: Пара JWT токенів автентифікації
+      description: Пара токенів доступу та оновлення
       required:
       - access_token
       - refresh_token
@@ -3017,7 +2839,7 @@ components:
         refresh_token:
           type: string
           description: Ротований Refresh токен (термін дії 30 днів)
-          example: r0a80123-9999-4444-8888-0123456789ab
+          example: 50a80123-9999-4444-8888-0123456789ab
         token_type:
           type: string
           example: Bearer
@@ -3027,7 +2849,7 @@ components:
           example: 900
     UserResponse:
       type: object
-      description: Публічне представлення користувача (без полів пароля)
+      description: Профіль облікового запису користувача
       required:
       - id
       - email
@@ -3038,7 +2860,7 @@ components:
         id:
           type: string
           format: uuid
-          example: u0a80123-4201-4444-9999-0123456789ab
+          example: 10a80123-4201-4444-9999-0123456789ab
         email:
           type: string
           format: email
@@ -3058,7 +2880,7 @@ components:
           example: '2026-10-20T12:00:00Z'
     BeerPackagingCreateRequest:
       type: object
-      description: DTO створення варіанту тари для пива
+      description: Дані варіанта пакування продукту при створенні
       required:
       - volume_ml
       - package_type
@@ -3086,7 +2908,7 @@ components:
           example: '4820202600018'
     BeerPackagingResponse:
       type: object
-      description: Представлення тари у відповіді
+      description: Дані варіанта пакування продукту
       required:
       - id
       - beer_id
@@ -3096,7 +2918,7 @@ components:
         id:
           type: string
           format: uuid
-          example: p0a80123-0001-4444-9999-0123456789ab
+          example: 30a80123-0001-4444-9999-0123456789ab
         beer_id:
           type: string
           format: uuid
@@ -3118,7 +2940,7 @@ components:
           example: '4820202600018'
     BeerCreateRequest:
       type: object
-      description: DTO створення нового сорту пива
+      description: Дані запиту на реєстрацію нового сорту пива
       required:
       - name
       - brewery
@@ -3187,7 +3009,7 @@ components:
             $ref: '#/components/schemas/BeerPackagingCreateRequest'
     BeerResponse:
       type: object
-      description: Повне представлення сорту пива в каталозі
+      description: Картка сорту пива в каталозі
       required:
       - id
       - name
@@ -3241,7 +3063,6 @@ components:
           - UNVERIFIED
           - VERIFIED
           - REJECTED
-          - MERGED
           example: VERIFIED
         rating_avg:
           type: number
@@ -3261,7 +3082,7 @@ components:
           example: '2026-10-20T12:00:00Z'
     BeerPagedResponse:
       type: object
-      description: Сторінкова відповідь каталогу
+      description: Сторінкова відповідь списку продуктів каталогу
       required:
       - items
       - page
@@ -3295,7 +3116,7 @@ components:
           example: false
     BeerVersionCreateRequest:
       type: object
-      description: DTO створення чернетки версії продукту
+      description: Дані запиту на створення нової версії продукту
       properties:
         name:
           type: string
@@ -3335,7 +3156,7 @@ components:
             $ref: '#/components/schemas/BeerPackagingCreateRequest'
     BeerVersionResponse:
       type: object
-      description: Представлення версії продукту
+      description: Дані версії продукту та підсумків голосування
       required:
       - id
       - beer_id
@@ -3349,7 +3170,7 @@ components:
         id:
           type: string
           format: uuid
-          example: v0a80123-0002-4444-9999-0123456789ab
+          example: 40a80123-0002-4444-9999-0123456789ab
         beer_id:
           type: string
           format: uuid
@@ -3357,10 +3178,9 @@ components:
         author_id:
           type: string
           format: uuid
-          example: u0a80123-4201-4444-9999-0123456789ab
+          example: 10a80123-4201-4444-9999-0123456789ab
         payload:
-          type: object
-          description: Знімок запропонованих змін
+          $ref: '#/components/schemas/BeerVersionCreateRequest'
         confirm_votes:
           type: integer
           example: 4
@@ -3378,9 +3198,35 @@ components:
           type: string
           format: date-time
           example: '2026-10-20T12:25:00Z'
+    BeerVersionPagedResponse:
+      type: object
+      description: Сторінкова відповідь списку версій продуктів
+      required:
+      - items
+      - page
+      - size
+      - total_elements
+      - total_pages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BeerVersionResponse'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        total_elements:
+          type: integer
+          example: 1
+        total_pages:
+          type: integer
+          example: 1
     BeerVersionVoteRequest:
       type: object
-      description: DTO відправки голосу за версію
+      description: Дані запиту на голосування за версію продукту
       required:
       - vote_type
       properties:
@@ -3392,7 +3238,7 @@ components:
           example: CONFIRM
     BeerVersionVoteResponse:
       type: object
-      description: Результат фіксації голосу
+      description: Результат обробки голосу за версію продукту
       required:
       - version_id
       - confirm_votes
@@ -3403,7 +3249,7 @@ components:
         version_id:
           type: string
           format: uuid
-          example: v0a80123-0002-4444-9999-0123456789ab
+          example: 40a80123-0002-4444-9999-0123456789ab
         confirm_votes:
           type: integer
           example: 5
@@ -3422,7 +3268,7 @@ components:
           example: Version successfully verified by community consensus
     BeerVersionRejectRequest:
       type: object
-      description: DTO відхилення версії модератором
+      description: Дані запиту на відхилення версії модератором
       properties:
         reason:
           type: string
@@ -3430,7 +3276,7 @@ components:
           example: Некоректний стиль товару
     ModerationDecisionRequest:
       type: object
-      description: DTO рішення модератора щодо черги
+      description: Дані рішення модератора щодо продукту в черзі модерації
       required:
       - decision
       properties:
@@ -3446,7 +3292,7 @@ components:
           example: Схвалено після перевірки
     ModerationDecisionResponse:
       type: object
-      description: Результат рішення модератора
+      description: Результат виконання рішення модератора
       required:
       - beer_id
       - decision
@@ -3465,7 +3311,7 @@ components:
           example: '2026-10-20T12:35:00Z'
     BeerMergeRequest:
       type: object
-      description: DTO злиття двох товарів-дублікатів
+      description: Дані запиту на об’єднання продукту-дубліката з цільовим продуктом
       required:
       - source_beer_id
       - target_beer_id
@@ -3480,7 +3326,7 @@ components:
           example: b0a80123-0012-4444-9999-0123456789ab
     BeerMergeResponse:
       type: object
-      description: Підсумок адміністративного злиття дублікатів
+      description: Підсумок об’єднання продукту-дубліката з цільовим продуктом
       required:
       - target_beer_id
       - migrated_consumptions_count
@@ -3506,7 +3352,7 @@ components:
           example: MERGED
     ConsumptionEntryCreateRequest:
       type: object
-      description: DTO фіксації факту споживання
+      description: Дані запиту на реєстрацію запису споживання
       required:
       - beer_id
       - packaging_id
@@ -3520,7 +3366,7 @@ components:
         packaging_id:
           type: string
           format: uuid
-          example: p0a80123-0001-4444-9999-0123456789ab
+          example: 30a80123-0001-4444-9999-0123456789ab
         quantity:
           type: integer
           minimum: 1
@@ -3534,7 +3380,7 @@ components:
           example: '2026-09-20T20:30:00Z'
     ConsumptionEntryResponse:
       type: object
-      description: Представлення зафіксованого запису споживання
+      description: Запис журналу споживання користувача
       required:
       - id
       - beer_id
@@ -3557,7 +3403,7 @@ components:
         packaging_id:
           type: string
           format: uuid
-          example: p0a80123-0001-4444-9999-0123456789ab
+          example: 30a80123-0001-4444-9999-0123456789ab
         quantity:
           type: integer
           example: 2
@@ -3625,7 +3471,7 @@ components:
           example: false
     HourlyProfileItem:
       type: object
-      description: Погодинний показник споживання для конкретної години доби
+      description: Показник споживання за окрему годину доби
       required:
       - hour
       - volume_ml
@@ -3649,7 +3495,7 @@ components:
           example: 750.0
     ConsumptionAnalyticsResponse:
       type: object
-      description: Комплексна персональна аналітика споживання
+      description: Персональна аналітика споживання користувача
       required:
       - timezone
       - current_streak
@@ -3683,7 +3529,7 @@ components:
             $ref: '#/components/schemas/HourlyProfileItem'
     StreakResponse:
       type: object
-      description: Показники стріків
+      description: Показники поточної та максимальної серій днів споживання
       required:
       - current_streak
       - longest_streak
@@ -3705,7 +3551,7 @@ components:
           example: true
     ReviewCreateRequest:
       type: object
-      description: DTO публікації дегустаційного відгуку
+      description: Дані запиту на публікацію дегустаційного відгуку
       required:
       - rating
       properties:
@@ -3725,7 +3571,7 @@ components:
           example: Чудовий класичний лагер
     ReviewUpdateRequest:
       type: object
-      description: DTO оновлення наявного відгуку
+      description: Дані запиту на оновлення дегустаційного відгуку
       required:
       - rating
       properties:
@@ -3743,20 +3589,19 @@ components:
           example: Після повторної дегустації - оцінка максимальна!
     ReviewResponse:
       type: object
-      description: Представлення відгуку
+      description: Дегустаційний відгук користувача на сорт пива
       required:
       - id
       - beer_id
       - user_id
       - rating
-      - is_archived
       - created_at
       - updated_at
       properties:
         id:
           type: string
           format: uuid
-          example: r0a80123-0001-4444-9999-0123456789ab
+          example: 50a80123-0001-4444-9999-0123456789ab
         beer_id:
           type: string
           format: uuid
@@ -3764,7 +3609,7 @@ components:
         user_id:
           type: string
           format: uuid
-          example: u0a80123-4201-4444-9999-0123456789ab
+          example: 10a80123-4201-4444-9999-0123456789ab
         rating:
           type: number
           format: float
@@ -3773,9 +3618,6 @@ components:
           type: string
           nullable: true
           example: Чудовий класичний лагер
-        is_archived:
-          type: boolean
-          example: false
         created_at:
           type: string
           format: date-time
@@ -3786,7 +3628,7 @@ components:
           example: '2026-10-20T13:00:00Z'
     WishlistItemResponse:
       type: object
-      description: Елемент списку бажань
+      description: Елемент персонального списку бажань користувача
       required:
       - id
       - beer_id
@@ -3795,7 +3637,7 @@ components:
         id:
           type: string
           format: uuid
-          example: w0a80123-0001-4444-9999-0123456789ab
+          example: 60a80123-0001-4444-9999-0123456789ab
         beer_id:
           type: string
           format: uuid
@@ -3808,7 +3650,7 @@ components:
           $ref: '#/components/schemas/BeerResponse'
     WishlistPagedResponse:
       type: object
-      description: Сторінковий перелік вішліста
+      description: Сторінкова відповідь списку бажань
       required:
       - items
       - page
@@ -3834,7 +3676,7 @@ components:
           example: 1
     TastedCollectionItemResponse:
       type: object
-      description: Елемент дегустаційної колекції
+      description: Елемент дегустаційної колекції скуштованих сортів пива
       required:
       - beer_id
       - beer_name
@@ -3871,7 +3713,7 @@ components:
           example: 4.5
     CollectionPagedResponse:
       type: object
-      description: Сторінковий перелік дегустаційної колекції
+      description: Сторінкова відповідь дегустаційної колекції
       required:
       - items
       - page

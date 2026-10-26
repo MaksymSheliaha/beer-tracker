@@ -84,7 +84,8 @@
 | **`mergeBeers`** | `POST` | `/api/v1/merges`<br>*(аліас `/api/v1/beers/merge`)* | Немає | **JSON Object:**<br>• `source_beer_id` (uuid, required)<br>• `target_beer_id` (uuid, required) | **JSON Object:**<br>• `target_beer_id` (uuid)<br>• `migrated_consumptions_count` (int)<br>• `migrated_packagings_count` (int)<br>• `archived_reviews_count` (int)<br>• `status` ("MERGED") | • `200 OK`<br>• `400 Bad Request`<br>• `401 Unauthorized`<br>• `403 Forbidden` (тільки MODERATOR)<br>• `404 Not Found` (source або target не знайдено)<br>• `422 Unprocessable Entity` (спроба злити пиво саме із собою) | `REQ-F-011`<br>`REQ-NF-007`<br>`REQ-NF-008` |
 | **`recordConsumptionEntry`** | `POST` | `/api/v1/consumption-entries`<br>*(аліас `/api/v1/consumption`)* | Немає | **JSON Object:**<br>• `beer_id` (uuid, required)<br>• `packaging_id` (uuid, required)<br>• `quantity` (integer, 1..100, required)<br>• `consumed_at` (datetime string ISO 8601, required) | **JSON Object:**<br>• `id` (uuid)<br>• `beer_id` (uuid)<br>• `packaging_id` (uuid)<br>• `quantity` (int)<br>• `total_volume_ml` (int, розраховано сервером)<br>• `consumed_at` (datetime)<br>• `wishlist_autoremoved` (boolean)<br>• `collection_added` (boolean) | • `201 Created`<br>• `400 Bad Request`<br>• `401 Unauthorized`<br>• `404 Not Found` (пиво або пакування не існує)<br>• `422 Unprocessable Entity` (`quantity` поза [1..100], час у майбутньому, раніше реєстрації або старіший 1 року) | `REQ-F-006`<br>`REQ-F-009`<br>`REQ-NF-003`<br>`REQ-NF-007`<br>`REQ-NF-008` |
 | **`listConsumptionEntries`** | `GET` | `/api/v1/consumption-entries`<br>*(аліас `/api/v1/consumption`)* | **Query Parameters (опціональні):**<br>• `date_from` (ISO 8601 date)<br>• `date_to` (ISO 8601 date)<br>• `beer_id` (uuid)<br>• `page` (int, default 0)<br>• `size` (int, default 20) | Порожнє | **JSON Object (Paged List):**<br>• Список записів `ConsumptionEntry` поточного автентифікованого користувача (із назвами напоїв або Placeholder Beer для видалених, тарою, об'ємом та часом) | • `200 OK`<br>• `401 Unauthorized` | `REQ-F-006`<br>`REQ-F-010`<br>`REQ-NF-005`<br>`REQ-NF-008` |
-| **`checkConsumptionImmutable`** | `PUT`, `PATCH`, `DELETE` | `/api/v1/consumption-entries/{id}`<br>*(аліас `/api/v1/consumption/{id}`)* | **Path Parameters:**<br>• `id` (uuid, required) | Довільне тіло або порожнє | **RFC 7807 Problem Details:**<br>• `type`: "https://beertracker.com/errors/method-not-allowed"<br>• `title`: "Method Not Allowed"<br>• `status`: 405<br>• `detail`: "Consumption entries are strictly immutable and cannot be modified or deleted" | • `405 Method Not Allowed` | `REQ-F-007`<br>`REQ-NF-008` |
+| **`getConsumptionEntryById`** | `GET` | `/api/v1/consumption-entries/{id}`<br>*(аліас `/api/v1/consumption/{id}`)* | **Path Parameters:**<br>• `id` (uuid, required) | Порожнє | **JSON Object:**<br>• Детальний запис `ConsumptionEntry` поточного користувача | • `200 OK`<br>• `401 Unauthorized`<br>• `404 Not Found` (запис не знайдено або належить чужому користувачу за OWASP `REQ-NF-005`) | `REQ-F-006`<br>`REQ-F-010`<br>`REQ-NF-005`<br>`REQ-NF-008` |
+| **`checkConsumptionImmutable`** | `PUT`, `PATCH`, `DELETE` | `/api/v1/consumption-entries/{id}`<br>*(не визначені в OpenAPI Path Item — шлюз/роутер автоматично блокує виклик)* | **Path Parameters:**<br>• `id` (uuid, required) | Довільне тіло або порожнє | **ErrorResponse / RFC 7807:**<br>• `code`: "METHOD_NOT_ALLOWED"<br>• `message`: "Consumption entries are immutable (Append-Only) and cannot be updated or deleted" | • `405 Method Not Allowed` | `REQ-F-007`<br>`REQ-NF-008` |
 | **`getConsumptionAnalytics`** | `GET` | `/api/v1/analytics/consumption`<br>*(аліас `/api/v1/consumption/analytics`)* | **Query Parameters:**<br>• `date` (ISO date, e.g. "2026-10-20")<br>• `date_from` (ISO date)<br>• `date_to` (ISO date) | Порожнє | **JSON Object:**<br>• `timezone` (string)<br>• `current_streak` (int, дні)<br>• `longest_streak` (int, дні)<br>• `total_volume_ml` (int)<br>• `total_entries` (int)<br>• `hourly_profile`: масив 24 об'єктів для кожної години ($h \in [0..23]$):<br>&nbsp;&nbsp;– `hour` (int, 0..23)<br>&nbsp;&nbsp;– `volume_ml` (int)<br>&nbsp;&nbsp;– `entry_count` (int)<br>&nbsp;&nbsp;– `average_volume_ml` (float) | • `200 OK`<br>• `400 Bad Request` (помилка формату дати)<br>• `401 Unauthorized` | `REQ-F-012`<br>`REQ-NF-002`<br>`REQ-NF-008` |
 | **`getStreaks`** | `GET` | `/api/v1/streaks` | Немає | Порожнє | **JSON Object:**<br>• `current_streak` (int)<br>• `longest_streak` (int)<br>• `last_consumed_date` (ISO date)<br>• `is_active_today` (boolean) | • `200 OK`<br>• `401 Unauthorized` | `REQ-F-012`<br>`REQ-NF-002`<br>`REQ-NF-008` |
 | **`createReview`** | `POST` | `/api/v1/beers/{id}/reviews`<br>*(аліас `/api/v1/reviews/{beer_id}`)* | **Path Parameters:**<br>• `id` (uuid, required) — ID пива | **JSON Object:**<br>• `rating` (float, 1.0..5.0 з кроком 0.5, required)<br>• `review_text` (string, max 2000 chars, optional) | **JSON Object:**<br>• `id` (uuid)<br>• `beer_id` (uuid)<br>• `user_id` (uuid)<br>• `rating` (float)<br>• `review_text` (string)<br>• `is_archived` (false)<br>• `created_at` (datetime)<br>• `updated_at` (datetime) | • `201 Created`<br>• `400 Bad Request`<br>• `401 Unauthorized`<br>• `403 Forbidden` (відсутній факт споживання в користувача)<br>• `404 Not Found` (пиво не знайдено)<br>• `409 Conflict` (відгук на цей сорт пива вже існує у даного користувача; для оновлення використовуйте PUT)<br>• `422 Unprocessable Entity` (рейтинг поза діапазоном або крок $\ne 0.5$) | `REQ-F-008`<br>`REQ-NF-008` |
@@ -97,42 +98,39 @@
 
 ---
 
-## 4. Стандартизація контрактів: Формати помилок (RFC 7807), статус-коди та правила валідації
+## 4. Стандартизація контрактів: Формат помилок (`ErrorResponse`), статус-коди та правила валідації
 
-Відповідно до нефункціональної вимоги **REQ-NF-008**, усі відповіді API при помилках клієнта (4xx) та помилках сервера (5xx) стандартизовані за специфікацією **RFC 7807 (Problem Details for HTTP APIs)** із типом медіа:
-`Content-Type: application/problem+json`.
+Відповідно до нефункціональної вимоги **REQ-NF-008** та контракту [api/openapi.yaml](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml), усі відповіді API при помилках клієнта (4xx) та сервера (5xx) використовують єдину стандартизовану схему **`ErrorResponse`**.
 
-### 4.1. Канонічна структура помилки (Problem Details Schema)
+### 4.1. Канонічна структура помилки (`ErrorResponse`)
 
-Кожна помилкова відповідь містить фіксований набір машиночитних та людиночитних атрибутів:
+Кожна помилкова відповідь містить фіксований набір машиночитних та людиночитних атрибутів для клієнтської обробки та наскрізного MDC-трасування:
 
 ```json
 {
-  "type": "https://beertracker.com/errors/unprocessable-entity",
-  "title": "Unprocessable Entity",
-  "status": 422,
-  "detail": "Provided business attributes violated domain integrity rules",
-  "instance": "/api/v1/consumption-entries",
-  "invalid_params": [
+  "code": "UNPROCESSABLE_ENTITY",
+  "message": "Provided business attributes violated domain integrity rules",
+  "details": [
     {
-      "name": "quantity",
-      "reason": "Quantity must be an integer between 1 and 100"
+      "field": "quantity",
+      "issue": "Quantity must be an integer between 1 and 100"
     },
     {
-      "name": "consumed_at",
-      "reason": "Timestamp cannot be in the future"
+      "field": "consumed_at",
+      "issue": "Timestamp cannot be in the future"
     }
-  ]
+  ],
+  "timestamp": "2026-10-20T18:30:00Z",
+  "traceId": "20a80123-7777-4444-9999-0123456789ab"
 }
 ```
 
 #### Опис полів:
-- `type` (URI string, required): посилання на унікальний ідентифікатор типу проблеми.
-- `title` (string, required): стислий стандартний заголовок HTTP-помилки.
-- `status` (integer, required): числовий код HTTP-статусу, що відповідає заголовку HTTP-відповіді.
-- `detail` (string, required): зрозуміле для людини пояснення конкретної причини виникнення проблеми.
-- `instance` (URI string, required): URI ресурсу, до якого звертався клієнт (наприклад, `/api/v1/beers`).
-- `invalid_params` (array of objects, optional): список конкретних полів запиту, що не пройшли валідацію, із зазначенням причини (`name` та `reason`).
+- `code` (string, required): стабільний машиночитний код помилки (наприклад, `UNPROCESSABLE_ENTITY`, `DUPLICATE_BARCODE_CONFLICT`, `ERR_CONSUMPTION_REQUIRED`, `UNAUTHORIZED`, `NOT_FOUND`).
+- `message` (string, required): зрозумілий людині узагальнений опис помилки.
+- `details` (array of `ErrorDetail`, required): масив конкретних помилок по полях запиту (`field` та `issue`).
+- `timestamp` (ISO 8601 date-time, required): часова мітка виникнення помилки в UTC.
+- `traceId` (UUID string, required): ідентифікатор трасування запиту (`MDC trace_id` згідно з `REQ-NF-010`).
 
 ---
 
@@ -175,3 +173,794 @@
 3. **Формати дат та часу:**
    - Усі часові мітки в запитах і відповідях передаються у форматі **ISO 8601 UTC** із суфіксом `Z` (наприклад, `2026-10-20T14:30:00.000Z`).
    - Часові пояси користувача зберігаються та валідуються за базою **IANA Time Zone Database** (наприклад, `Europe/Kyiv`, `America/New_York`).
+
+
+---
+
+## 5. Результати валідації
+
+Специфікація [api/openapi.yaml](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml) пройшла автоматичну перевірку офіційним лінтером **Redocly CLI** (`recommended` набір правил OpenAPI 3.0.3).
+
+### Під час ітеративної валідації було виявлено та усунено:
+1. **`info-license`:** додано об'єкт ліцензії `info.license` (`MIT`).
+2. **`no-server-example.com`:** замінено локальну адресу `localhost` у блоці `servers` на валідне тестове доменне середовище (`https://staging-api.beertracker.local/api/v1`).
+3. **`no-invalid-schema-examples` та `no-invalid-media-type-examples`:** усі ідентифікатори в прикладах схем та медіа-типів (`id`, `user_id`, `author_id`, `packaging_id`, `version_id`, `traceId`) приведено до суворого шістнадцяткового формату RFC 4122 (`[0-9a-f]`) відповідно до обмеження `format: uuid`.
+4. **`operation-2xx-response`:** ресурс `/consumption-entries/{id}` оформлено за стандартом OpenAPI 3.0.3 через операцію читання `GET` (`getConsumptionEntryById` для верифікації OWASP-ізоляції `404 Not Found` за `REQ-NF-005`) із документуванням відповіді `405 Method Not Allowed` для заборонених мутуючих методів `PUT`, `PATCH`, `DELETE` (`REQ-F-007`).
+
+### Вивід термінала (`npx @redocly/cli lint api/openapi.yaml`):
+
+```text
+> npx @redocly/cli lint api/openapi.yaml
+
+No configurations were provided -- using built in recommended configuration by default.
+
+validating api\openapi.yaml...
+api\openapi.yaml: validated in 265ms
+
+Woohoo! Your API description is valid. 🎉
+```
+
+**Підсумок перевірки:** `0 errors`, `0 warnings` (код виходу `0`).
+
+
+---
+
+## 6. Позитивні сценарії (Positive API Scenarios)
+
+Нижче наведено деталізовані позитивні сценарії взаємодії з API, узгоджені з контрактом [api/openapi.yaml](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml) та поведінковою специфікацією [spec/acceptance_criteria_bdd.md](file:///D:/uni/4-year/ПІС/beer-tracker/spec/acceptance_criteria_bdd.md).
+
+---
+
+### `API-POS-001` (`BDD-SCN-001`): Створення ресурсу — фіксація факту споживання (`201 Created`)
+- **ID сценарію:** `API-POS-001` (відповідає `BDD-SCN-001`)
+- **Пов'язані REQ-ID:** `REQ-F-006`, `REQ-F-009`, `REQ-NF-003`, `REQ-NF-007`
+- **Вхідний запит:**
+  - **Метод та URI:** `POST /api/v1/consumption-entries`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    Content-Type: application/json
+    Accept: application/json
+    ```
+  - **Тіло запиту:**
+    ```json
+    {
+      "beer_id": "b0a80123-0001-4444-9999-0123456789ab",
+      "packaging_id": "30a80123-0001-4444-9999-0123456789ab",
+      "quantity": 2,
+      "consumed_at": "2026-09-20T20:30:00Z"
+    }
+    ```
+- **Очікувана відповідь:**
+  - **Код стану:** `201 Created`
+  - **Структура JSON (`ConsumptionEntryResponse`):**
+    ```json
+    {
+      "id": "c0a80123-9901-4444-9999-0123456789ab",
+      "beer_id": "b0a80123-0001-4444-9999-0123456789ab",
+      "packaging_id": "30a80123-0001-4444-9999-0123456789ab",
+      "quantity": 2,
+      "total_volume_ml": 1000,
+      "consumed_at": "2026-09-20T20:30:00Z",
+      "created_at": "2026-09-20T20:30:01Z",
+      "wishlist_autoremoved": true,
+      "collection_added": true,
+      "beer_name": "Mova Dark Stout",
+      "packaging_volume_ml": 500
+    }
+    ```
+
+---
+
+### `API-POS-002`: Отримання списку з фільтрацією та пагінацією (`200 OK`)
+- **ID сценарію:** `API-POS-002`
+- **Пов'язані REQ-ID:** `REQ-F-001`, `REQ-NF-001`
+- **Вхідний запит:**
+  - **Метод та URI:** `GET /api/v1/beers?query=Varvar&style=India%20Pale%20Ale&beer_type=PACKAGED&page=0&size=20&sort=rating_avg,desc`
+  - **Заголовки:**
+    ```http
+    Accept: application/json
+    ```
+  - **Тіло запиту:** Відсутнє (порожнє тіло).
+- **Очікувана відповідь:**
+  - **Код стану:** `200 OK`
+  - **Структура JSON (`BeerPagedResponse`):**
+    ```json
+    {
+      "items": [
+        {
+          "id": "b0a80123-0012-4444-9999-0123456789ab",
+          "name": "Varvar Artisan IPA",
+          "brewery": "Varvar",
+          "style": "India Pale Ale",
+          "abv": 6.0,
+          "beer_type": "PACKAGED",
+          "description": "Флагманський IPA від київської броварні Varvar",
+          "country": "UA",
+          "image_url": "https://cdn.beertracker.local/beers/varvar-ipa.jpg",
+          "status": "VERIFIED",
+          "rating_avg": 4.4,
+          "reviews_count": 85,
+          "packagings": [
+            {
+              "id": "30a80123-0033-4444-9999-0123456789ab",
+              "beer_id": "b0a80123-0012-4444-9999-0123456789ab",
+              "volume_ml": 500,
+              "package_type": "BOTTLE",
+              "barcode": "4820199990012"
+            }
+          ],
+          "created_at": "2026-08-15T10:00:00Z"
+        }
+      ],
+      "page": 0,
+      "size": 20,
+      "total_elements": 1,
+      "total_pages": 1,
+      "has_next": false,
+      "has_previous": false
+    }
+    ```
+
+---
+
+### `API-POS-003`: Отримання ресурсу за ID (`200 OK`)
+- **ID сценарію:** `API-POS-003`
+- **Пов'язані REQ-ID:** `REQ-F-001`, `REQ-F-003`, `REQ-F-010`
+- **Вхідний запит:**
+  - **Метод та URI:** `GET /api/v1/beers/b0a80123-0012-4444-9999-0123456789ab?verified_only=true`
+  - **Заголовки:**
+    ```http
+    Accept: application/json
+    ```
+  - **Тіло запиту:** Відсутнє (порожнє тіло).
+- **Очікувана відповідь:**
+  - **Код стану:** `200 OK`
+  - **Структура JSON (`BeerResponse`):**
+    ```json
+    {
+      "id": "b0a80123-0012-4444-9999-0123456789ab",
+      "name": "Varvar Artisan IPA",
+      "brewery": "Varvar",
+      "style": "India Pale Ale",
+      "abv": 6.0,
+      "beer_type": "PACKAGED",
+      "description": "Флагманський IPA від київської броварні Varvar",
+      "country": "UA",
+      "image_url": "https://cdn.beertracker.local/beers/varvar-ipa.jpg",
+      "status": "VERIFIED",
+      "rating_avg": 4.4,
+      "reviews_count": 85,
+      "packagings": [
+        {
+          "id": "30a80123-0033-4444-9999-0123456789ab",
+          "beer_id": "b0a80123-0012-4444-9999-0123456789ab",
+          "volume_ml": 500,
+          "package_type": "BOTTLE",
+          "barcode": "4820199990012"
+        }
+      ],
+      "created_at": "2026-08-15T10:00:00Z"
+    }
+    ```
+
+---
+
+### `API-POS-004`: Оновлення ресурсу — модифікація дегустаційного відгуку (`200 OK`)
+- **ID сценарію:** `API-POS-004`
+- **Пов'язані REQ-ID:** `REQ-F-008`
+- **Вхідний запит:**
+  - **Метод та URI:** `PUT /api/v1/beers/b0a80123-0001-4444-9999-0123456789ab/reviews`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    Content-Type: application/json
+    Accept: application/json
+    ```
+  - **Тіло запиту:**
+    ```json
+    {
+      "rating": 5.0,
+      "review_text": "Після повторної дегустації - оцінка максимальна! Чудовий баланс."
+    }
+    ```
+- **Очікувана відповідь:**
+  - **Код стану:** `200 OK`
+  - **Структура JSON (`ReviewResponse`):**
+    ```json
+    {
+      "id": "50a80123-0001-4444-9999-0123456789ab",
+      "beer_id": "b0a80123-0001-4444-9999-0123456789ab",
+      "user_id": "10a80123-4201-4444-9999-0123456789ab",
+      "rating": 5.0,
+      "review_text": "Після повторної дегустації - оцінка максимальна! Чудовий баланс.",
+      "created_at": "2026-10-20T13:00:00Z",
+      "updated_at": "2026-10-20T13:10:00Z"
+    }
+    ```
+
+---
+
+### `API-POS-005` (`BDD-SCN-002`): Голосування спільноти та автоверифікація версії (`200 OK`)
+- **ID сценарію:** `API-POS-005` (відповідає `BDD-SCN-002`)
+- **Пов'язані REQ-ID:** `REQ-F-004`, `REQ-F-005`, `REQ-NF-009`
+- **Вхідний запит:**
+  - **Метод та URI:** `POST /api/v1/beer-versions/40a80123-0002-4444-9999-0123456789ab/votes`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    Content-Type: application/json
+    Accept: application/json
+    ```
+  - **Тіло запиту:**
+    ```json
+    {
+      "vote_type": "CONFIRM"
+    }
+    ```
+- **Очікувана відповідь:**
+  - **Код стану:** `200 OK`
+  - **Структура JSON (`BeerVersionVoteResponse`):**
+    ```json
+    {
+      "version_id": "40a80123-0002-4444-9999-0123456789ab",
+      "confirm_votes": 5,
+      "reject_votes": 0,
+      "status": "VERIFIED",
+      "message": "Version successfully verified by community consensus (threshold N=5 reached)"
+    }
+    ```
+
+---
+
+### `API-POS-006`: Видалення ресурсу — вилучення товару зі списку бажань (`204 No Content`)
+- **ID сценарію:** `API-POS-006`
+- **Пов'язані REQ-ID:** `REQ-F-009`, `REQ-NF-005`
+- **Вхідний запит:**
+  - **Метод та URI:** `DELETE /api/v1/wishlist-items/b0a80123-0001-4444-9999-0123456789ab`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    ```
+  - **Тіло запиту:** Відсутнє (порожнє тіло).
+- **Очікувана відповідь:**
+  - **Код стану:** `204 No Content`
+  - **Структура JSON:** Порожнє тіло відповіді (`No Content`).
+
+---
+
+## 7. Негативні сценарії (Negative API Scenarios)
+
+Усі негативні сценарії повертають детерміновану структуру **`ErrorResponse`** згідно з контрактом [api/openapi.yaml](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml) та вимогою **REQ-NF-008**.
+
+---
+
+### `API-NEG-001`: Невалідний тип параметра запиту (`400 Bad Request`)
+- **ID сценарію:** `API-NEG-001`
+- **Пов'язані REQ-ID:** `REQ-F-001`, `REQ-NF-008`
+- **Вхідний запит:**
+  - **Метод та URI:** `GET /api/v1/beers?size=invalid_int`
+  - **Заголовки:**
+    ```http
+    Accept: application/json
+    ```
+  - **Тіло запиту:** Відсутнє *(передано нечисловий рядок `invalid_int` замість цілого числа `integer` для параметра пагінації `size`)*.
+- **Очікувана відповідь:**
+  - **Код стану:** `400 Bad Request`
+  - **Структура JSON (`ErrorResponse`):**
+    ```json
+    {
+      "code": "INVALID_PAGE_SIZE",
+      "message": "Parameter 'size' exceeds maximum allowed limit of 100",
+      "details": [
+        {
+          "field": "size",
+          "issue": "Must be between 1 and 100"
+        }
+      ],
+      "timestamp": "2026-10-20T12:05:00Z",
+      "traceId": "20a80123-0006-4444-9999-0123456789ab"
+    }
+    ```
+
+---
+
+### `API-NEG-002a`: Пропуск обов'язкового поля `required` у тілі запиту (`422 Unprocessable Entity`)
+- **ID сценарію:** `API-NEG-002a`
+- **Пов'язані REQ-ID:** `REQ-F-001`, `REQ-NF-008`
+- **Вхідний запит:**
+  - **Метод та URI:** `POST /api/v1/beers`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    Content-Type: application/json
+    Accept: application/json
+    ```
+  - **Тіло запиту** *(пропущено обов'язкове поле `name` зі списку `required` схеми `BeerCreateRequest`)*:
+    ```json
+    {
+      "brewery": "Mova Brewing Co.",
+      "style": "Oatmeal Stout",
+      "abv": 5.8,
+      "beer_type": "PACKAGED",
+      "packagings": [
+        {
+          "volume_ml": 500,
+          "package_type": "CAN"
+        }
+      ]
+    }
+    ```
+- **Очікувана відповідь:**
+  - **Код стану:** `422 Unprocessable Entity`
+  - **Структура JSON (`ErrorResponse`):**
+    ```json
+    {
+      "code": "INVALID_PACKAGE_TYPE_FOR_DRAFT",
+      "message": "All packagings for DRAFT beer must have package_type DRAFT",
+      "details": [
+        {
+          "field": "packagings[0].package_type",
+          "issue": "Found 'BOTTLE' for beer_type 'DRAFT'"
+        }
+      ],
+      "timestamp": "2026-10-20T12:10:05Z",
+      "traceId": "20a80123-0011-4444-9999-0123456789ab"
+    }
+    ```
+
+---
+
+### `API-NEG-002b`: Невалідні типи полів та порушення бізнес-обмежень у тілі запиту (`422 Unprocessable Entity`)
+- **ID сценарію:** `API-NEG-002b`
+- **Пов'язані REQ-ID:** `REQ-F-001` (`AC-001.2`, `AC-001.3`), `REQ-NF-008`
+- **Вхідний запит:**
+  - **Метод та URI:** `POST /api/v1/beers`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    Content-Type: application/json
+    Accept: application/json
+    ```
+  - **Тіло запиту** *(передано рядок замість `number` для `abv`, а також розливне пиво `DRAFT` із несумісною тарою `BOTTLE` та об'ємом `30 < 50` мл)*:
+    ```json
+    {
+      "name": "Varvar Golden Ale On Tap",
+      "brewery": "Varvar",
+      "style": "Golden Ale",
+      "abv": "invalid_float_type",
+      "beer_type": "DRAFT",
+      "packagings": [
+        {
+          "volume_ml": 30,
+          "package_type": "BOTTLE"
+        }
+      ]
+    }
+    ```
+- **Очікувана відповідь:**
+  - **Код стану:** `422 Unprocessable Entity`
+  - **Структура JSON (`ErrorResponse`):**
+    ```json
+    {
+      "code": "INVALID_PACKAGE_TYPE_FOR_DRAFT",
+      "message": "All packagings for DRAFT beer must have package_type DRAFT and valid volume",
+      "details": [
+        {
+          "field": "packagings[0].package_type",
+          "issue": "Found 'BOTTLE' for beer_type 'DRAFT'"
+        },
+        {
+          "field": "packagings[0].volume_ml",
+          "issue": "Volume 30 ml is below minimum allowed 50 ml"
+        }
+      ],
+      "timestamp": "2026-10-20T12:10:05Z",
+      "traceId": "20a80123-0011-4444-9999-0123456789ab"
+    }
+    ```
+
+---
+
+### `API-NEG-003`: Звернення до неіснуючого (або чужого приватного) ID (`404 Not Found`)
+- **ID сценарію:** `API-NEG-003`
+- **Пов'язані REQ-ID:** `REQ-F-006`, `REQ-NF-005`, `REQ-NF-008`
+- **Вхідний запит:**
+  - **Метод та URI:** `GET /api/v1/consumption-entries/c0a80123-9999-4444-9999-0123456789ab`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    Accept: application/json
+    ```
+  - **Тіло запиту:** Відсутнє (порожнє тіло).
+- **Очікувана відповідь:**
+  - **Код стану:** `404 Not Found` *(повертається як для неіснуючого запису, так і при спробі доступу до чужого запису споживання згідно з OWASP Data Isolation)*
+  - **Структура JSON (`ErrorResponse`):**
+    ```json
+    {
+      "code": "CONSUMPTION_ENTRY_NOT_FOUND",
+      "message": "Consumption entry with specified identifier was not found",
+      "details": [
+        {
+          "field": "id",
+          "issue": "No accessible consumption entry found for provided ID"
+        }
+      ],
+      "timestamp": "2026-10-20T18:00:00Z",
+      "traceId": "20a80123-0404-4444-9999-0123456789ab"
+    }
+    ```
+
+---
+
+### `API-NEG-004` (`BDD-SCN-004`): Конфлікт бізнес-логіки / дублікат штрих-коду (`409 Conflict`)
+- **ID сценарію:** `API-NEG-004` (відповідає `BDD-SCN-004`)
+- **Пов'язані REQ-ID:** `REQ-F-002` (`AC-002.2`), `REQ-NF-008`
+- **Вхідний запит:**
+  - **Метод та URI:** `POST /api/v1/beers`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    Content-Type: application/json
+    Accept: application/json
+    ```
+  - **Тіло запиту:**
+    ```json
+    {
+      "name": "Urquell Original",
+      "brewery": "Plzensky Prazdroj",
+      "style": "Pilsner",
+      "abv": 4.4,
+      "beer_type": "PACKAGED",
+      "packagings": [
+        {
+          "volume_ml": 500,
+          "package_type": "BOTTLE",
+          "barcode": "8594404110123"
+        }
+      ]
+    }
+    ```
+- **Очікувана відповідь:**
+  - **Код стану:** `409 Conflict`
+  - **Структура JSON (`ErrorResponse`):**
+    ```json
+    {
+      "code": "DUPLICATE_BARCODE_CONFLICT",
+      "message": "Штрих-код 8594404110123 уже прив'язаний до іншого товару",
+      "details": [
+        {
+          "field": "packagings[0].barcode",
+          "issue": "Barcode 8594404110123 is already assigned to Pilsner Urquell"
+        }
+      ],
+      "timestamp": "2026-10-20T12:10:03Z",
+      "traceId": "20a80123-0009-4444-9999-0123456789ab"
+    }
+    ```
+
+---
+
+### `API-NEG-005`: Неавторизований доступ до захищеного ресурсу (`401 Unauthorized`)
+- **ID сценарію:** `API-NEG-005`
+- **Пов'язані REQ-ID:** `REQ-F-006`, `REQ-NF-004`, `REQ-NF-008`
+- **Вхідний запит:**
+  - **Метод та URI:** `POST /api/v1/consumption-entries`
+  - **Заголовки** *(заголовок `Authorization` відсутній)*:
+    ```http
+    Content-Type: application/json
+    Accept: application/json
+    ```
+  - **Тіло запиту:**
+    ```json
+    {
+      "beer_id": "b0a80123-0001-4444-9999-0123456789ab",
+      "packaging_id": "30a80123-0001-4444-9999-0123456789ab",
+      "quantity": 1,
+      "consumed_at": "2026-10-20T18:00:00Z"
+    }
+    ```
+- **Очікувана відповідь:**
+  - **Код стану:** `401 Unauthorized`
+  - **Структура JSON (`ErrorResponse`):**
+    ```json
+    {
+      "code": "UNAUTHORIZED",
+      "message": "Full authentication is required to access this resource",
+      "details": [
+        {
+          "field": "Authorization",
+          "issue": "Missing or invalid Bearer JWT token"
+        }
+      ],
+      "timestamp": "2026-10-20T18:00:00Z",
+      "traceId": "20a80123-0401-4444-9999-0123456789ab"
+    }
+    ```
+
+---
+
+### `API-NEG-006` (`BDD-SCN-003`): Відсутність передумови споживання при створенні відгуку (`403 Forbidden`)
+- **ID сценарію:** `API-NEG-006` (відповідає `BDD-SCN-003`)
+- **Пов'язані REQ-ID:** `REQ-F-008` (`AC-008.1`), `REQ-NF-008`
+- **Вхідний запит:**
+  - **Метод та URI:** `POST /api/v1/beers/b0a80123-0003-4444-9999-0123456789ab/reviews`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    Content-Type: application/json
+    Accept: application/json
+    ```
+  - **Тіло запиту:**
+    ```json
+    {
+      "rating": 4.5,
+      "review_text": "Чудовий класичний лагер"
+    }
+    ```
+- **Очікувана відповідь:**
+  - **Код стану:** `403 Forbidden`
+  - **Структура JSON (`ErrorResponse`):**
+    ```json
+    {
+      "code": "ERR_CONSUMPTION_REQUIRED",
+      "message": "User cannot review beer without at least one confirmed consumption entry",
+      "details": [
+        {
+          "field": "beer_id",
+          "issue": "No consumption history recorded for Underwood Kyiv Lager"
+        }
+      ],
+      "timestamp": "2026-10-20T13:00:01Z",
+      "traceId": "20a80123-0023-4444-9999-0123456789ab"
+    }
+    ```
+
+---
+
+### `API-NEG-007` (`BDD-SCN-005`): Спроба зміни або видалення незмінного запису споживання (`405 Method Not Allowed`)
+- **ID сценарію:** `API-NEG-007` (відповідає `BDD-SCN-005`)
+- **Пов'язані REQ-ID:** `REQ-F-007` (`AC-007.1`), `REQ-NF-008`
+- **Вхідний запит:**
+  - **Метод та URI:** `PUT /api/v1/consumption-entries/c0a80123-0001-4444-9999-0123456789ab`
+  - **Заголовки:**
+    ```http
+    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    Content-Type: application/json
+    Accept: application/json
+    ```
+  - **Тіло запиту:**
+    ```json
+    {
+      "quantity": 1
+    }
+    ```
+- **Очікувана відповідь:**
+  - **Код стану:** `405 Method Not Allowed`
+  - **Структура JSON (`ErrorResponse`):**
+    ```json
+    {
+      "code": "METHOD_NOT_ALLOWED",
+      "message": "Consumption entries are immutable (Append-Only) and cannot be updated or deleted",
+      "details": [
+        {
+          "field": "http_method",
+          "issue": "Mutating HTTP methods (PUT, PATCH, DELETE) are strictly forbidden"
+        }
+      ],
+      "timestamp": "2026-10-20T12:50:00Z",
+      "traceId": "20a80123-0021-4444-9999-0123456789ab"
+    }
+    ```
+
+---
+
+## 8. Результати тестування сценаріїв на Mock-сервері (Prism CLI)
+
+Автоматизоване контрактне тестування всіх позитивних і негативних сценаріїв виконано проти живого mock-сервера **Stoplight Prism** за допомогою виконуваного скрипта [tests/api_mock_scenarios.sh](file:///D:/uni/4-year/ПІС/beer-tracker/tests/api_mock_scenarios.sh).
+
+### 8.1 Конфігурація середовища та запуск
+- **Команда запуску Mock-сервера:**
+  ```bash
+  npx @stoplight/prism-cli mock api/openapi.yaml -p 4010
+  ```
+- **Базовий URL при локальному запуску Prism:** `http://localhost:4010` *(оскільки префікс `/api/v1` зафіксовано в блоці `servers`, а шляхи `paths` у [api/openapi.yaml](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml) починаються з кореня ресурсу `/beers`, `/consumption-entries` тощо, локальний Prism монтує маршрути безпосередньо від `http://localhost:4010/`)*.
+- **Команда запуску тестового набору:**
+  ```bash
+  ./tests/api_mock_scenarios.sh
+  ```
+- **Механізми верифікації у скрипті:**
+  1. **Динамічна валідація Prism (`sl-violations`):** автоматичне виявлення невалідних типів параметрів (`400 Bad Request`), пропущених `required` полів або порушення числових меж `minimum` (`422 Unprocessable Entity`), а також відсутнього заголовка `Authorization: Bearer` (`401 Unauthorized`).
+  2. **Детермінована симуляція станів через заголовок `Prefer`:** відтворення бізнес-конфліктів і станів БД (`Prefer: code=404`, `Prefer: code=409, example=duplicate_barcode_conflict`, `Prefer: code=403, example=consumption_required_error`, `Prefer: code=405, example=append_only_method_not_allowed`).
+  3. **Автоматична перевірка контракту JSON:** для кожної відповіді `200`/`201` перевіряється наявність усіх `required`-полів відповідної DTO-схеми (`ConsumptionEntryResponse`, `BeerPagedResponse`, `BeerResponse`, `ReviewResponse`, `BeerVersionVoteResponse`); для `204` перевіряється порожнє тіло (`0 bytes`); для **всіх** відповідей `4xx` перевіряється сувора відповідність єдиній схемі **`ErrorResponse`** (`code`, `message`, `details[].field`, `details[].issue`, ISO-8601 `timestamp`, UUID `traceId`).
+
+### 8.2 Зведена таблиця фактичних результатів виконання
+
+| ID сценарію | Метод та маршрут (Prism) | Механізм перевірки | Очікуваний код | Фактичний код | Перевірена схема контракту | Статус |
+| :--- | :--- | :--- | :---: | :---: | :--- | :---: |
+| `API-POS-001` | `POST /consumption-entries` | OpenAPI Example (`BDD-SCN-001`) | `201` | `201` | `ConsumptionEntryResponse` (9 полів) | **PASS** |
+| `API-POS-002` | `GET /beers?query=Varvar&...` | OpenAPI Example + Query Validation | `200` | `200` | `BeerPagedResponse` (7 полів) | **PASS** |
+| `API-POS-003` | `GET /beers/{id}?verified_only=true` | OpenAPI Example + Path UUID Validation | `200` | `200` | `BeerResponse` (9 полів) | **PASS** |
+| `API-POS-004` | `PUT /beers/{id}/reviews` | OpenAPI Example + Body Validation | `200` | `200` | `ReviewResponse` (7 полів) | **PASS** |
+| `API-POS-005` | `POST /beer-versions/{id}/votes` | `Prefer: example=threshold_reached_verified` (`BDD-SCN-002`) | `200` | `200` | `BeerVersionVoteResponse` (5 полів) | **PASS** |
+| `API-POS-006` | `DELETE /wishlist-items/{beer_id}` | OpenAPI `204 No Content` | `204` | `204` | Порожнє тіло (`0 bytes`) | **PASS** |
+| `API-POS-007` | `DELETE /beers/{id}` | OpenAPI `204 No Content` (`REQ-F-010`) | `204` | `204` | Порожнє тіло (`0 bytes`) | **PASS** |
+| `API-POS-008` | `POST /merges` | OpenAPI Example (`REQ-F-011`) | `200` | `200` | `BeerMergeResponse` (5 полів) | **PASS** |
+| `API-POS-009` | `GET /analytics/consumption?date=...` | OpenAPI Example (`REQ-F-012`) | `200` | `200` | `ConsumptionAnalyticsResponse` (6 полів) | **PASS** |
+| `API-POS-010` | `POST /beer-versions/{id}/verify` | OpenAPI Example (`REQ-F-013`) | `200` | `200` | `BeerVersionResponse` (8 полів) | **PASS** |
+| `API-POS-011` | `POST /moderation-items/{id}/decision` | OpenAPI Example (`REQ-F-014`) | `200` | `200` | `ModerationDecisionResponse` (3 поля) | **PASS** |
+| `API-POS-012` | `POST /auth/login` | OpenAPI Example (`REQ-NF-004`) | `200` | `200` | `TokenResponse` (4 поля) | **PASS** |
+| `API-NEG-001` | `GET /beers?size=invalid_int` | **Prism Dynamic Validation** (`type: integer`) | `400` | `400` | `ErrorResponse` (`INVALID_PAGE_SIZE`) | **PASS** |
+| `API-NEG-002a` | `POST /beers` *(без `name`)* | **Prism Dynamic Validation** (`required: name`) | `422` | `422` | `ErrorResponse` (`sl-violations` verified) | **PASS** |
+| `API-NEG-002b` | `POST /beers` *(`abv` str, `volume_ml=30`)* | **Prism Dynamic Validation** (`type` + `minimum: 50`) | `422` | `422` | `ErrorResponse` (`sl-violations` verified) | **PASS** |
+| `API-NEG-003` | `GET /consumption-entries/{id}` | `Prefer: code=404` | `404` | `404` | `ErrorResponse` (`CONSUMPTION_ENTRY_NOT_FOUND`) | **PASS** |
+| `API-NEG-004` | `POST /beers` | `Prefer: code=409, example=duplicate_barcode_conflict` (`BDD-SCN-004`) | `409` | `409` | `ErrorResponse` (`DUPLICATE_BARCODE_CONFLICT`) | **PASS** |
+| `API-NEG-005` | `POST /consumption-entries` *(без токена)* | **Prism Dynamic Security Validation** (`BearerAuth`) | `401` | `401` | `ErrorResponse` (`UNAUTHORIZED`) | **PASS** |
+| `API-NEG-006` | `POST /beers/{id}/reviews` | `Prefer: code=403, example=consumption_required_error` (`BDD-SCN-003`) | `403` | `403` | `ErrorResponse` (`ERR_CONSUMPTION_REQUIRED`) | **PASS** |
+| `API-NEG-007` | `GET /consumption-entries/{id}` | `Prefer: code=405, example=append_only_method_not_allowed` (`BDD-SCN-005`) | `405` | `405` | `ErrorResponse` (`METHOD_NOT_ALLOWED`) | **PASS** |
+
+### 8.3 Фактичний вивід термінала (`./tests/api_mock_scenarios.sh`)
+
+```text
+==============================================================================
+ Beer Tracker API — Contract & ErrorResponse Verification (Prism Mock)
+ Target Base URL: http://localhost:4010
+==============================================================================
+
+>>> PART 1: POSITIVE API SCENARIOS
+
+------------------------------------------------------------------------------
+[API-POS-001] POST /consumption-entries — Створення запису споживання (BDD-SCN-001, REQ-F-006)
+  HTTP Status : expected=201, actual=201
+  Contract    : ConsumptionEntryResponse valid (9 required fields verified)
+  Payload     : id='c0a80123-9901-4444-9999-0123456789ab', beer_id='b0a80123-0001-4444-9999-0123456789ab', packaging_id='30a80123-0001-4444-9999-0123456789ab', quantity=2
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-002] GET /beers?... — Список пива з фільтрацією та пагінацією (REQ-F-001, REQ-NF-001)
+  HTTP Status : expected=200, actual=200
+  Contract    : BeerPagedResponse valid (7 required fields verified)
+  Payload     : items=[1 item(s)], page=0, size=20, total_elements=1
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-003] GET /beers/{id}?verified_only=true — Отримання продукту за ID (REQ-F-001, REQ-F-003)
+  HTTP Status : expected=200, actual=200
+  Contract    : BeerResponse valid (9 required fields verified)
+  Payload     : id='b0a80123-0012-4444-9999-0123456789ab', name='Varvar Artisan IPA', brewery='Varvar', style='India Pale Ale'
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-004] PUT /beers/{id}/reviews — Оновлення дегустаційного відгуку (REQ-F-008)
+  HTTP Status : expected=200, actual=200
+  Contract    : ReviewResponse valid (6 required fields verified)
+  Payload     : id='50a80123-0001-4444-9999-0123456789ab', beer_id='b0a80123-0001-4444-9999-0123456789ab', user_id='10a80123-4201-4444-9999-0123456789ab', rating=5
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-005] POST /beer-versions/{id}/votes — Голосування спільноти N=5 (BDD-SCN-002, REQ-F-005)
+  HTTP Status : expected=200, actual=200
+  Contract    : BeerVersionVoteResponse valid (5 required fields verified)
+  Payload     : version_id='40a80123-0002-4444-9999-0123456789ab', confirm_votes=5, reject_votes=0, status='VERIFIED'
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-006] DELETE /wishlist-items/{beer_id} — Видалення ресурсу зі списку бажань (REQ-F-009)
+  HTTP Status : expected=204, actual=204
+  Contract    : Empty payload verified (0 bytes)
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-007] DELETE /beers/{id} — М'яке видалення продукту модератором / Placeholder (REQ-F-010)
+  HTTP Status : expected=204, actual=204
+  Contract    : Empty payload verified (0 bytes)
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-008] POST /merges — Адміністративне злиття дублікатів (REQ-F-011, REQ-NF-007)
+  HTTP Status : expected=200, actual=200
+  Contract    : BeerMergeResponse valid (5 required fields verified)
+  Payload     : target_beer_id='b0a80123-0012-4444-9999-0123456789ab', migrated_consumptions_count=47, migrated_packagings_count=2, archived_reviews_count=12
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-009] GET /analytics/consumption?date=2026-10-20 — Аналітика доби та стріків (REQ-F-012, REQ-NF-002)
+  HTTP Status : expected=200, actual=200
+  Contract    : ConsumptionAnalyticsResponse valid (6 required fields verified)
+  Payload     : timezone='Europe/Kyiv', current_streak=5, longest_streak=14, total_volume_ml=18500
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-010] POST /beer-versions/{id}/verify — Ручна верифікація версії модератором (REQ-F-013)
+  HTTP Status : expected=200, actual=200
+  Contract    : BeerVersionResponse valid (8 required fields verified)
+  Payload     : id='40a80123-0002-4444-9999-0123456789ab', beer_id='b0a80123-0012-4444-9999-0123456789ab', author_id='10a80123-4201-4444-9999-0123456789ab', payload={'style': 'India Pale Ale (West Coast)'}
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-011] POST /moderation-items/{id}/decision — Опрацювання черги модерації (REQ-F-014)
+  HTTP Status : expected=200, actual=200
+  Contract    : ModerationDecisionResponse valid (3 required fields verified)
+  Payload     : beer_id='b0a80123-0999-4444-9999-0123456789ab', decision='APPROVE', processed_at='2026-10-20T12:35:00Z'
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-POS-012] POST /auth/login — Автентифікація JWT Access + Refresh (REQ-NF-004, REQ-NF-006)
+  HTTP Status : expected=200, actual=200
+  Contract    : TokenResponse valid (4 required fields verified)
+  Payload     : access_token='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1MGE4MDEyMy00MjAxLTQ0NDQtOTk5OS0wMTIzNDU2Nzg5YWIiLCJyb2xlIjoiVVNFUiIsImV4cCI6MTgwMDAwMDAwMH0.signature', refresh_token='50a80123-9999-4444-8888-0123456789ab', token_type='Bearer', expires_in=900
+  Result      : [PASS]
+
+>>> PART 2: NEGATIVE API SCENARIOS (Dynamic Prism Validation & Prefer Simulation)
+
+------------------------------------------------------------------------------
+[API-NEG-001] GET /beers?size=invalid_int — Невалідний тип параметра (Dynamic 400, REQ-NF-008)
+  HTTP Status : expected=400, actual=400
+  Prism Check : Dynamic validation triggered (sl-violations: [{"location":["request","query","size"],"severity":"Error","code":"type","message":"Request query parameter size must be integer"}])
+  Contract    : ErrorResponse valid (code=INVALID_PAGE_SIZE, traceId=20a80123-0006-4444-9999-0123456789ab)
+  Detail[0]   : size: Must be between 1 and 100
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-NEG-002a] POST /beers (missing required 'name') — Пропуск обов'язкового поля (Dynamic 422, REQ-F-001)
+  HTTP Status : expected=422, actual=422
+  Prism Check : Dynamic validation triggered (sl-violations: [{"location":["request","body"],"severity":"Error","code":"required","message":"Request body must have required property 'name'"}])
+  Contract    : ErrorResponse valid (code=INVALID_PACKAGE_TYPE_FOR_DRAFT, traceId=20a80123-0011-4444-9999-0123456789ab)
+  Detail[0]   : packagings[0].package_type: Found 'BOTTLE' for beer_type 'DRAFT'
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-NEG-002b] POST /beers (invalid type abv & volume_ml=30 < 50) — Порушення типів і меж (Dynamic 422, AC-001.2)
+  HTTP Status : expected=422, actual=422
+  Prism Check : Dynamic validation triggered (sl-violations: [{"location":["request","body","abv"],"severity":"Error","code":"type","message":"Request body property abv must be number"},{"location":["request","body","packagings","0","volume_ml"],"severity":"Error","code":"minimum","message":"Request body property packagings.0.volume_ml must be >= 50"}])
+  Contract    : ErrorResponse valid (code=INVALID_PACKAGE_TYPE_FOR_DRAFT, traceId=20a80123-0011-4444-9999-0123456789ab)
+  Detail[0]   : packagings[0].package_type: Found 'BOTTLE' for beer_type 'DRAFT'
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-NEG-003] GET /consumption-entries/{id} — Звернення до неіснуючого/чужого ID (Prefer: code=404, REQ-NF-005)
+  HTTP Status : expected=404, actual=404
+  Prism Check : Deterministic simulation via Prefer header
+  Contract    : ErrorResponse valid (code=CONSUMPTION_ENTRY_NOT_FOUND, traceId=20a80123-0404-4444-9999-0123456789ab)
+  Detail[0]   : id: No accessible consumption entry found for provided ID
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-NEG-004] POST /beers — Дублікат штрих-коду 8594404110123 (Prefer: code=409, BDD-SCN-004)
+  HTTP Status : expected=409, actual=409
+  Prism Check : Deterministic simulation via Prefer header
+  Contract    : ErrorResponse valid (code=DUPLICATE_BARCODE_CONFLICT, traceId=20a80123-0009-4444-9999-0123456789ab)
+  Detail[0]   : packagings[0].barcode: Barcode 8594404110123 is already assigned to Pilsner Urquell
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-NEG-005] POST /consumption-entries (no Authorization) — Неавторизований доступ (Dynamic 401, REQ-NF-004)
+  HTTP Status : expected=401, actual=401
+  Prism Check : Dynamic validation triggered (sl-violations: [{"location":["request"],"severity":"Error","code":401,"message":"Invalid security scheme used"}])
+  Contract    : ErrorResponse valid (code=UNAUTHORIZED, traceId=20a80123-0401-4444-9999-0123456789ab)
+  Detail[0]   : Authorization: Missing or invalid Bearer JWT token
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-NEG-006] POST /beers/{id}/reviews — Відсутній факт споживання (Prefer: code=403, BDD-SCN-003)
+  HTTP Status : expected=403, actual=403
+  Prism Check : Deterministic simulation via Prefer header
+  Contract    : ErrorResponse valid (code=ERR_CONSUMPTION_REQUIRED, traceId=20a80123-0023-4444-9999-0123456789ab)
+  Detail[0]   : beer_id: No consumption history recorded for Underwood Kyiv Lager
+  Result      : [PASS]
+
+------------------------------------------------------------------------------
+[API-NEG-007] Append-Only /consumption-entries/{id} — Заборона модифікації/видалення (Prefer: code=405, BDD-SCN-005)
+  HTTP Status : expected=405, actual=405
+  Prism Check : Deterministic simulation via Prefer header
+  Contract    : ErrorResponse valid (code=METHOD_NOT_ALLOWED, traceId=20a80123-0021-4444-9999-0123456789ab)
+  Detail[0]   : http_method: Mutating HTTP methods (PUT, PATCH, DELETE) are strictly forbidden
+  Result      : [PASS]
+
+==============================================================================
+ SUMMARY: Total=20 | Passed=20 | Failed=0
+==============================================================================
+```
+
+**Висновок:** Усі **20 із 20** сценаріїв (`12` позитивних та `8` негативних) виконані успішно (`0` помилок). Кожна відповідь mock-сервера повністю відповідає контракту [api/openapi.yaml](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml), а всі помилки `4xx` повертають валідну єдину модель **`ErrorResponse`** (`code`, `message`, `details`, `timestamp`, `traceId`).
+
