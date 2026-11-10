@@ -15,17 +15,38 @@ import java.util.UUID;
 @Component
 public class ConsumptionMapper {
 
-    public ConsumptionEntry toEntity(ConsumptionEntryCreateRequest request, Beer beer, BeerPackaging packaging) {
+    public ConsumptionEntry toEntity(
+            ConsumptionEntryCreateRequest request,
+            Beer beer,
+            BeerPackaging packaging
+    ) {
+        return toEntity(
+                request,
+                beer,
+                packaging,
+                UUID.fromString("00000000-0000-0000-0000-000000000000"),
+                true
+        );
+    }
+
+    public ConsumptionEntry toEntity(
+            ConsumptionEntryCreateRequest request,
+            Beer beer,
+            BeerPackaging packaging,
+            UUID userId,
+            boolean wishlistAutoremoved
+    ) {
         int totalVolumeMl = request.quantity() * packaging.volumeMl();
         return new ConsumptionEntry(
                 UUID.randomUUID(),
+                userId,
                 beer.id(),
                 packaging.id(),
                 request.quantity(),
                 totalVolumeMl,
                 request.consumedAt(),
                 Instant.now(),
-                true,
+                wishlistAutoremoved,
                 true,
                 beer.name(),
                 packaging.volumeMl()

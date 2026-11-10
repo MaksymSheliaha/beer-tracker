@@ -11,6 +11,7 @@ import com.beertracker.model.BeerPackaging;
 import com.beertracker.model.ConsumptionEntry;
 import com.beertracker.repository.BeerRepository;
 import com.beertracker.repository.ConsumptionRepository;
+import com.beertracker.repository.WishlistRepository;
 import com.beertracker.validation.DomainValidationPredicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,23 +28,32 @@ import static net.logstash.logback.argument.StructuredArguments.kv;
 public class ConsumptionService {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumptionService.class);
+    private static final UUID ANONYMOUS_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
 
     private final ConsumptionRepository consumptionRepository;
     private final BeerRepository beerRepository;
+    private final WishlistRepository wishlistRepository;
     private final ConsumptionMapper consumptionMapper;
 
     public ConsumptionService(
             ConsumptionRepository consumptionRepository,
             BeerRepository beerRepository,
+            WishlistRepository wishlistRepository,
             ConsumptionMapper consumptionMapper
     ) {
         this.consumptionRepository = consumptionRepository;
         this.beerRepository = beerRepository;
+        this.wishlistRepository = wishlistRepository;
         this.consumptionMapper = consumptionMapper;
     }
 
     public ConsumptionEntryResponse recordConsumption(ConsumptionEntryCreateRequest request) {
+        return recordConsumption(ANONYMOUS_USER_ID, request);
+    }
+
+    public synchronized ConsumptionEntryResponse recordConsumption(UUID userId, ConsumptionEntryCreateRequest request) {
         long startNs = System.nanoTime();
+        UUID effectiveUserId = userId != null ? userId : ANONYMOUS_USER_ID;
         validateConsumptionRequest(request);
 
         Beer beer = beerRepository.findById(request.beerId())
@@ -64,7 +74,15 @@ public class ConsumptionService {
                         List.of(new ErrorDetail("packaging_id", "No packaging found with identifier " + request.packagingId()))
                 ));
 
-        ConsumptionEntry entry = consumptionMapper.toEntity(request, beer, packaging);
+        boolean wishlistAutoremoved = wishlistRepository.removeByUserAndBeer(effectiveUserId, beer.id());
+
+        ConsumptionEntry entry = consumptionMapper.toEntity(
+                request,
+                beer,
+                packaging,
+                effectiveUserId,
+                wishlistAutoremoved
+        );
         consumptionRepository.append(entry);
 
         int totalVolumeSoFar = consumptionRepository.findAll().stream()
@@ -75,6 +93,7 @@ public class ConsumptionService {
         log.info("Consumption entry created",
                 kv("event", "consumption_entry_created"),
                 kv("consumption_id", entry.id().toString()),
+                kv("user_id", effectiveUserId.toString()),
                 kv("beer_id", entry.beerId().toString()),
                 kv("packaging_id", entry.packagingId().toString()),
                 kv("volume_ml", packaging.volumeMl()),

@@ -85,4 +85,10 @@ public final class DomainValidationPredicates {
 
     public static final Predicate<String> IS_VALID_IANA_TIMEZONE =
             timezone -> IS_NON_BLANK_TEXT.test(timezone) && ZoneId.getAvailableZoneIds().contains(timezone.trim());
+
+    public static final Predicate<Double> IS_VALID_REVIEW_RATING =
+            rating -> rating != null
+                    && rating >= 1.0
+                    && rating <= 5.0
+                    && Math.abs(rating * 2.0 - Math.round(rating * 2.0)) < 1e-6;
 }

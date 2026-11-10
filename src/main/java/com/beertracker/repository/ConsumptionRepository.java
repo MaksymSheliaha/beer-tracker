@@ -29,4 +29,15 @@ public class ConsumptionRepository {
     public List<ConsumptionEntry> findAll() {
         return List.copyOf(appendOnlyLog);
     }
+
+    public boolean hasUserConsumedBeer(UUID userId, UUID beerId) {
+        return appendOnlyLog.stream()
+                .anyMatch(entry -> userId.equals(entry.userId()) && beerId.equals(entry.beerId()));
+    }
+
+    public List<ConsumptionEntry> findByUserId(UUID userId) {
+        return appendOnlyLog.stream()
+                .filter(entry -> userId.equals(entry.userId()))
+                .toList();
+    }
 }
