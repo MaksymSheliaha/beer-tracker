@@ -54,11 +54,16 @@ public class BeerService {
     }
 
     public BeerPagedResponse listBeers(String query, int page, int size) {
+        return listBeers(query, null, null, page, size);
+    }
+
+    public BeerPagedResponse listBeers(String query, Double minAbv, Double maxAbv, int page, int size) {
         long startNs = System.nanoTime();
         validatePagination(page, size);
+        validateAbvRange(minAbv, maxAbv);
 
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        List<BeerResponse> filtered = beerRepository.findAllVisibleInCatalog().stream()
+        List<BeerResponse> filtered = beerRepository.findAllVisibleByAbvRange(minAbv, maxAbv).stream()
                 .filter(b -> normalizedQuery.isEmpty()
                         || b.name().toLowerCase(Locale.ROOT).contains(normalizedQuery)
                         || b.brewery().toLowerCase(Locale.ROOT).contains(normalizedQuery))
@@ -71,11 +76,40 @@ public class BeerService {
         log.info("Catalog search executed",
                 kv("event", "catalog_search"),
                 kv("query", query),
+                kv("min_abv", minAbv),
+                kv("max_abv", maxAbv),
                 kv("hits_count", pagedResponse.items().size()),
                 kv("duration_ms", durationMs),
                 kv("status", "200"));
 
         return pagedResponse;
+    }
+
+    private void validateAbvRange(Double minAbv, Double maxAbv) {
+        if (minAbv != null && !DomainValidationPredicates.IS_VALID_ABV.test(minAbv)) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "INVALID_ABV_RANGE",
+                    "Parameter 'min_abv' must be between 0.0 and 100.0",
+                    List.of(new ErrorDetail("min_abv", "Must be between 0.0 and 100.0"))
+            );
+        }
+        if (maxAbv != null && !DomainValidationPredicates.IS_VALID_ABV.test(maxAbv)) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "INVALID_ABV_RANGE",
+                    "Parameter 'max_abv' must be between 0.0 and 100.0",
+                    List.of(new ErrorDetail("max_abv", "Must be between 0.0 and 100.0"))
+            );
+        }
+        if (minAbv != null && maxAbv != null && minAbv > maxAbv) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "INVALID_ABV_RANGE",
+                    "Parameter 'min_abv' cannot be greater than 'max_abv'",
+                    List.of(new ErrorDetail("min_abv", "min_abv (" + minAbv + ") exceeds max_abv (" + maxAbv + ")"))
+            );
+        }
     }
 
     private void validatePagination(int page, int size) {

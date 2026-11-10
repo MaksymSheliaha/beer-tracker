@@ -67,6 +67,14 @@ public class BeerRepository {
                 .toList();
     }
 
+    public List<Beer> findAllVisibleByAbvRange(Double minAbv, Double maxAbv) {
+        return beersById.values().stream()
+                .filter(b -> !HIDDEN_CATALOG_STATUSES.contains(b.status()))
+                .filter(b -> minAbv == null || (b.abv() != null && b.abv() >= minAbv))
+                .filter(b -> maxAbv == null || (b.abv() != null && b.abv() <= maxAbv))
+                .toList();
+    }
+
     public List<Beer> findByStatus(String status) {
         return beersById.values().stream()
                 .filter(b -> status.equals(b.status()))

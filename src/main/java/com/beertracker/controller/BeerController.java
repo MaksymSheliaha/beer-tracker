@@ -34,9 +34,11 @@ public class BeerController {
     @GetMapping
     public ResponseEntity<BeerPagedResponse> listBeers(
             @RequestParam(name = "query", required = false) String query,
+            @RequestParam(name = "min_abv", required = false) Double minAbv,
+            @RequestParam(name = "max_abv", required = false) Double maxAbv,
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "20") int size
     ) {
-        return ResponseEntity.ok(beerService.listBeers(query, page, size));
+        return ResponseEntity.ok(beerService.listBeers(query, minAbv, maxAbv, page, size));
     }
 }
