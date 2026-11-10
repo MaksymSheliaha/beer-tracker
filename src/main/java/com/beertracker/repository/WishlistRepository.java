@@ -38,4 +38,8 @@ public class WishlistRepository {
     public boolean removeByUserAndBeer(UUID userId, UUID beerId) {
         return itemsByUserAndBeer.remove(key(userId, beerId)) != null;
     }
+
+    public void removeAllByBeer(UUID beerId) {
+        itemsByUserAndBeer.values().removeIf(item -> beerId.equals(item.beerId()));
+    }
 }

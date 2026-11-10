@@ -40,4 +40,61 @@ public class ConsumptionRepository {
                 .filter(entry -> userId.equals(entry.userId()))
                 .toList();
     }
+
+    public synchronized void updateBeerNameForBeerId(UUID beerId, String newBeerName) {
+        for (int i = 0; i < appendOnlyLog.size(); i++) {
+            ConsumptionEntry current = appendOnlyLog.get(i);
+            if (beerId.equals(current.beerId())) {
+                ConsumptionEntry updated = new ConsumptionEntry(
+                        current.id(),
+                        current.userId(),
+                        current.beerId(),
+                        current.packagingId(),
+                        current.quantity(),
+                        current.totalVolumeMl(),
+                        current.consumedAt(),
+                        current.createdAt(),
+                        current.wishlistAutoremoved(),
+                        current.collectionAdded(),
+                        newBeerName,
+                        current.packagingVolumeMl()
+                );
+                appendOnlyLog.set(i, updated);
+                entriesById.put(updated.id(), updated);
+            }
+        }
+    }
+
+    public synchronized int migrateConsumptions(
+            UUID sourceBeerId,
+            UUID targetBeerId,
+            String targetBeerName,
+            Map<UUID, UUID> packagingIdMapping
+    ) {
+        int migratedCount = 0;
+        for (int i = 0; i < appendOnlyLog.size(); i++) {
+            ConsumptionEntry current = appendOnlyLog.get(i);
+            if (sourceBeerId.equals(current.beerId())) {
+                UUID mappedPkgId = packagingIdMapping.getOrDefault(current.packagingId(), current.packagingId());
+                ConsumptionEntry migrated = new ConsumptionEntry(
+                        current.id(),
+                        current.userId(),
+                        targetBeerId,
+                        mappedPkgId,
+                        current.quantity(),
+                        current.totalVolumeMl(),
+                        current.consumedAt(),
+                        current.createdAt(),
+                        current.wishlistAutoremoved(),
+                        current.collectionAdded(),
+                        targetBeerName,
+                        current.packagingVolumeMl()
+                );
+                appendOnlyLog.set(i, migrated);
+                entriesById.put(migrated.id(), migrated);
+                migratedCount++;
+            }
+        }
+        return migratedCount;
+    }
 }

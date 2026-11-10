@@ -58,7 +58,7 @@ public class BeerService {
         validatePagination(page, size);
 
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        List<BeerResponse> filtered = beerRepository.findAll().stream()
+        List<BeerResponse> filtered = beerRepository.findAllVisibleInCatalog().stream()
                 .filter(b -> normalizedQuery.isEmpty()
                         || b.name().toLowerCase(Locale.ROOT).contains(normalizedQuery)
                         || b.brewery().toLowerCase(Locale.ROOT).contains(normalizedQuery))
