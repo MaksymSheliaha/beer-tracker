@@ -11,6 +11,10 @@ info:
     name: MIT
     url: https://opensource.org/licenses/MIT
 servers:
+- url: http://localhost:8080/api/v1
+  description: Local Development Server (Live H2 Backend)
+- url: /api/v1
+  description: Relative URL (Current Host)
 - url: https://api.beertracker.local/api/v1
   description: Production API Server
 - url: https://staging-api.beertracker.local/api/v1
