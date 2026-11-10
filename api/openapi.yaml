@@ -233,6 +233,7 @@ paths:
       operationId: listBeers
       x-req-id:
       - REQ-F-001
+      - REQ-F-015
       - REQ-NF-001
       - REQ-NF-008
       security: []
@@ -283,6 +284,26 @@ paths:
         schema:
           type: string
           example: '4820000000001'
+      - name: min_abv
+        in: query
+        description: Мінімальний вміст алкоголю за об'ємом (ABV %, від 0.0 до 100.0) згідно з REQ-F-015 (SRS-ADD-002)
+        required: false
+        schema:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          example: 4.5
+      - name: max_abv
+        in: query
+        description: Максимальний вміст алкоголю за об'ємом (ABV %, від 0.0 до 100.0) згідно з REQ-F-015 (SRS-ADD-002)
+        required: false
+        schema:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          example: 8.0
       - name: page
         in: query
         description: Номер сторінки (починаючи з 0)
