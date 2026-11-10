@@ -86,23 +86,23 @@ public class BeerService {
     }
 
     private void validateAbvRange(Double minAbv, Double maxAbv) {
-        if (minAbv != null && !DomainValidationPredicates.IS_VALID_ABV.test(minAbv)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_ABV_RANGE",
-                    "Parameter 'min_abv' must be between 0.0 and 100.0",
-                    List.of(new ErrorDetail("min_abv", "Must be between 0.0 and 100.0"))
-            );
-        }
-        if (maxAbv != null && !DomainValidationPredicates.IS_VALID_ABV.test(maxAbv)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_ABV_RANGE",
-                    "Parameter 'max_abv' must be between 0.0 and 100.0",
-                    List.of(new ErrorDetail("max_abv", "Must be between 0.0 and 100.0"))
-            );
-        }
-        if (minAbv != null && maxAbv != null && minAbv > maxAbv) {
+        if (!DomainValidationPredicates.IS_VALID_ABV_RANGE.test(minAbv, maxAbv)) {
+            if (minAbv != null && !DomainValidationPredicates.IS_VALID_ABV.test(minAbv)) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "INVALID_ABV_RANGE",
+                        "Parameter 'min_abv' must be between 0.0 and 100.0",
+                        List.of(new ErrorDetail("min_abv", "Must be between 0.0 and 100.0"))
+                );
+            }
+            if (maxAbv != null && !DomainValidationPredicates.IS_VALID_ABV.test(maxAbv)) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "INVALID_ABV_RANGE",
+                        "Parameter 'max_abv' must be between 0.0 and 100.0",
+                        List.of(new ErrorDetail("max_abv", "Must be between 0.0 and 100.0"))
+                );
+            }
             throw new ApiException(
                     HttpStatus.BAD_REQUEST,
                     "INVALID_ABV_RANGE",

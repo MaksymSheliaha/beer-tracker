@@ -47,6 +47,17 @@ public final class DomainValidationPredicates {
     public static final Predicate<Double> IS_VALID_ABV =
             abv -> abv != null && abv >= 0.0 && abv <= 100.0;
 
+    public static final BiPredicate<Double, Double> IS_VALID_ABV_RANGE =
+            (minAbv, maxAbv) -> (minAbv == null || IS_VALID_ABV.test(minAbv))
+                    && (maxAbv == null || IS_VALID_ABV.test(maxAbv))
+                    && (minAbv == null || maxAbv == null || minAbv <= maxAbv);
+
+    public static Predicate<Double> matchesAbvRange(Double minAbv, Double maxAbv) {
+        return abv -> abv != null
+                && (minAbv == null || abv >= minAbv)
+                && (maxAbv == null || abv <= maxAbv);
+    }
+
     public static final Predicate<String> IS_VALID_BEER_TYPE =
             beerType -> beerType != null && ALLOWED_BEER_TYPES.contains(beerType);
 
