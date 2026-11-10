@@ -86,6 +86,10 @@ public class MergeService {
                         List.of(new ErrorDetail("target_beer_id", "Target beer with specified identifier was not found"))
                 ));
 
+        List<BeerPackaging> sourcePackagingsSnapshot = sourceBeer.packagings().stream()
+                .map(p -> new BeerPackaging(p.id(), p.beerId(), p.volumeMl(), p.packageType(), p.barcode()))
+                .toList();
+
         // 1. Mark sourceBeer as MERGED first so its barcodes are released from BeerRepository index
         Beer mergedSourceBeer = new Beer(
                 sourceBeer.id(),
@@ -100,17 +104,17 @@ public class MergeService {
                 "MERGED",
                 sourceBeer.ratingAvg(),
                 sourceBeer.reviewsCount(),
-                sourceBeer.packagings(),
+                sourcePackagingsSnapshot,
                 sourceBeer.createdAt()
         );
-        beerRepository.save(mergedSourceBeer);
+        beerRepository.saveAndFlush(mergedSourceBeer);
 
         // 2. Migrate packagings from sourceBeer to targetBeer (AC-011.1)
         List<BeerPackaging> updatedTargetPackagings = new ArrayList<>(targetBeer.packagings());
         Map<UUID, UUID> packagingIdMapping = new HashMap<>();
         int migratedPackagingsCount = 0;
 
-        for (BeerPackaging sourcePkg : sourceBeer.packagings()) {
+        for (BeerPackaging sourcePkg : sourcePackagingsSnapshot) {
             Optional<BeerPackaging> equivalentTargetPkg = updatedTargetPackagings.stream()
                     .filter(tp -> tp.packageType().equals(sourcePkg.packageType())
                             && tp.volumeMl().equals(sourcePkg.volumeMl()))

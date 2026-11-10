@@ -16,6 +16,7 @@ import com.beertracker.model.BeerVersion;
 import com.beertracker.model.VersionVote;
 import com.beertracker.repository.BeerRepository;
 import com.beertracker.repository.BeerVersionRepository;
+import com.beertracker.repository.VersionVoteRepository;
 import com.beertracker.validation.DomainValidationPredicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,17 +38,20 @@ public class BeerVersionService {
     public static final int CONSENSUS_THRESHOLD = 5;
 
     private final BeerVersionRepository beerVersionRepository;
+    private final VersionVoteRepository versionVoteRepository;
     private final BeerRepository beerRepository;
     private final BeerVersionMapper beerVersionMapper;
     private final BeerMapper beerMapper;
 
     public BeerVersionService(
             BeerVersionRepository beerVersionRepository,
+            VersionVoteRepository versionVoteRepository,
             BeerRepository beerRepository,
             BeerVersionMapper beerVersionMapper,
             BeerMapper beerMapper
     ) {
         this.beerVersionRepository = beerVersionRepository;
+        this.versionVoteRepository = versionVoteRepository;
         this.beerRepository = beerRepository;
         this.beerVersionMapper = beerVersionMapper;
         this.beerMapper = beerMapper;
@@ -169,7 +173,7 @@ public class BeerVersionService {
                     Instant.now()
             );
 
-            if (!beerVersionRepository.insertVoteIfAbsent(vote)) {
+            if (versionVoteRepository.existsByUserIdAndVersionId(voterId, versionId)) {
                 throw new ApiException(
                         HttpStatus.CONFLICT,
                         "DUPLICATE_VOTE_CONFLICT",
@@ -177,6 +181,7 @@ public class BeerVersionService {
                         List.of(new ErrorDetail("id", "A vote from the current user has already been recorded for this version"))
                 );
             }
+            versionVoteRepository.saveAndFlush(vote);
 
             int newConfirmVotes = version.confirmVotes() + ("CONFIRM".equals(request.voteType()) ? 1 : 0);
             int newRejectVotes = version.rejectVotes() + ("REJECT".equals(request.voteType()) ? 1 : 0);

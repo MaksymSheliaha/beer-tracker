@@ -1,45 +1,45 @@
 package com.beertracker.repository;
 
 import com.beertracker.model.WishlistItem;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Repository
-public class WishlistRepository {
+public interface WishlistRepository extends JpaRepository<WishlistItem, UUID> {
 
-    private final Map<String, WishlistItem> itemsByUserAndBeer = new ConcurrentHashMap<>();
+    Optional<WishlistItem> findByUserIdAndBeerId(UUID userId, UUID beerId);
 
-    private static String key(UUID userId, UUID beerId) {
-        return userId + "::" + beerId;
+    List<WishlistItem> findByUserIdOrderByAddedAtDesc(UUID userId);
+
+    List<WishlistItem> findByBeerId(UUID beerId);
+
+    default Optional<WishlistItem> findByUserAndBeer(UUID userId, UUID beerId) {
+        return findByUserIdAndBeerId(userId, beerId);
     }
 
-    public WishlistItem save(WishlistItem item) {
-        itemsByUserAndBeer.put(key(item.userId(), item.beerId()), item);
-        return item;
+    default List<WishlistItem> findByUser(UUID userId) {
+        return findByUserIdOrderByAddedAtDesc(userId);
     }
 
-    public Optional<WishlistItem> findByUserAndBeer(UUID userId, UUID beerId) {
-        return Optional.ofNullable(itemsByUserAndBeer.get(key(userId, beerId)));
+    default boolean removeByUserAndBeer(UUID userId, UUID beerId) {
+        Optional<WishlistItem> existing = findByUserIdAndBeerId(userId, beerId);
+        if (existing.isPresent()) {
+            delete(existing.get());
+            flush();
+            return true;
+        }
+        return false;
     }
 
-    public List<WishlistItem> findByUser(UUID userId) {
-        return itemsByUserAndBeer.values().stream()
-                .filter(item -> userId.equals(item.userId()))
-                .sorted(Comparator.comparing(WishlistItem::addedAt).reversed())
-                .toList();
-    }
-
-    public boolean removeByUserAndBeer(UUID userId, UUID beerId) {
-        return itemsByUserAndBeer.remove(key(userId, beerId)) != null;
-    }
-
-    public void removeAllByBeer(UUID beerId) {
-        itemsByUserAndBeer.values().removeIf(item -> beerId.equals(item.beerId()));
+    default void removeAllByBeer(UUID beerId) {
+        List<WishlistItem> items = findByBeerId(beerId);
+        if (!items.isEmpty()) {
+            deleteAll(items);
+            flush();
+        }
     }
 }

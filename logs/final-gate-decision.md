@@ -55,7 +55,17 @@
 
 ---
 
-## 4. Формальне рішення (RELEASE-GATE Decision)
+## 4. Архітектурний рефакторинг рівня збереження (Spring Data JPA + H2)
+
+- **Зміна внутрішньої архітектури без порушення контракту API:**
+  - Шар збереження даних переведено з `ConcurrentHashMap` на **Spring Data JPA (`Hibernate 6.6.13.Final`)** та реляційну базу даних **H2 (`jdbc:h2:mem:beertracker`)**.
+  - Моделі домену (`Beer`, `BeerPackaging`, `BeerVersion`, `VersionVote`, `ConsumptionEntry`, `RefreshToken`, `Review`, `User`, `WishlistItem`) перетворено на повноцінні JPA-сутності (`@Entity`, `@Table`, `@Id`, `@OneToMany` / `@ManyToOne`, `@Column(unique = true)`).
+  - Усі репозиторії переведено на інтерфейси `JpaRepository` (`8 JPA repository interfaces`).
+  - Регресійний прогін `mvn test` після рефакторингу: **`Tests run: 34, Failures: 0, Errors: 0, Skipped: 0` (100% GREEN)** без жодних змін у тестовому коді.
+
+---
+
+## 5. Формальне рішення (RELEASE-GATE Decision)
 
 - [x] **GO (APPROVED):** Усі критерії якості виконано на 100%, трасування вимог повне, регресійні та приймальні тести зелені (`34/34`), зміну за адендумом `SRS-ADD-002` інтегровано. Систему **Beer Tracker Backend API v1.0** офіційно допущено до релізу.
 - [ ] **NO-GO (REJECTED):** Повернення на доопрацювання.
