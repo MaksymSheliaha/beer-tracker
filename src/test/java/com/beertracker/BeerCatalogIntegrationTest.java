@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -279,5 +280,81 @@ class BeerCatalogIntegrationTest {
                 .andExpect(jsonPath("$.code").value("DUPLICATE_BEER_NAME_CONFLICT"))
                 .andExpect(jsonPath("$.details[0].field").value("name"))
                 .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("BDD-SCN-006 / REQ-F-015 (SRS-ADD-002): GET /api/v1/beers filters by min_abv and max_abv and rejects invalid ABV range")
+    void shouldFilterBeersByAbvRangeAndRejectInvalidRange_BddScn006() throws Exception {
+        String lightBeer = """
+                {
+                  "name": "Light Session IPA",
+                  "brewery": "Varvar",
+                  "style": "Session IPA",
+                  "abv": 3.8,
+                  "beer_type": "PACKAGED",
+                  "packagings": [
+                    {
+                      "volume_ml": 330,
+                      "package_type": "CAN",
+                      "barcode": "4820777000011"
+                    }
+                  ]
+                }
+                """;
+        String mediumBeer = """
+                {
+                  "name": "Mova Classic Stout",
+                  "brewery": "Mova Brewing Co.",
+                  "style": "Stout",
+                  "abv": 5.8,
+                  "beer_type": "PACKAGED",
+                  "packagings": [
+                    {
+                      "volume_ml": 500,
+                      "package_type": "CAN",
+                      "barcode": "4820777000012"
+                    }
+                  ]
+                }
+                """;
+        String strongBeer = """
+                {
+                  "name": "Imperial Baltic Porter",
+                  "brewery": "Pravda",
+                  "style": "Baltic Porter",
+                  "abv": 9.5,
+                  "beer_type": "PACKAGED",
+                  "packagings": [
+                    {
+                      "volume_ml": 330,
+                      "package_type": "BOTTLE",
+                      "barcode": "4820777000013"
+                    }
+                  ]
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/beers").contentType(MediaType.APPLICATION_JSON).content(lightBeer))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/v1/beers").contentType(MediaType.APPLICATION_JSON).content(mediumBeer))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/v1/beers").contentType(MediaType.APPLICATION_JSON).content(strongBeer))
+                .andExpect(status().isCreated());
+
+        // AC-015.1: Filter by [5.0 .. 8.0] -> returns only Mova Classic Stout (abv 5.8)
+        mockMvc.perform(get("/api/v1/beers")
+                        .param("min_abv", "5.0")
+                        .param("max_abv", "8.0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].name").value("Mova Classic Stout"))
+                .andExpect(jsonPath("$.items[0].abv").value(5.8));
+
+        // AC-015.2: Inverted range min_abv > max_abv -> 400 Bad Request (INVALID_ABV_RANGE)
+        mockMvc.perform(get("/api/v1/beers")
+                        .param("min_abv", "8.0")
+                        .param("max_abv", "4.0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ABV_RANGE"));
     }
 }
