@@ -2,14 +2,15 @@ package com.beertracker.validation;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Set;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 /**
- * Isolated domain validation predicates for Beer Catalog (REQ-F-001, REQ-F-002)
- * and Consumption Log (REQ-F-006, REQ-NF-008).
+ * Isolated domain validation predicates for Beer Catalog (REQ-F-001, REQ-F-002),
+ * Consumption Log (REQ-F-006, REQ-NF-008), and Authentication (REQ-NF-004, REQ-NF-006).
  */
 public final class DomainValidationPredicates {
 
@@ -19,8 +20,11 @@ public final class DomainValidationPredicates {
     public static final int MAX_CONSUMPTION_QUANTITY = 100;
     public static final int MIN_PAGE_SIZE = 1;
     public static final int MAX_PAGE_SIZE = 100;
+    public static final int MIN_PASSWORD_LENGTH = 8;
+    public static final int MAX_PASSWORD_LENGTH = 128;
 
     private static final Pattern BARCODE_PATTERN = Pattern.compile("^\\d{8,14}$");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Set<String> ALLOWED_BEER_TYPES = Set.of("PACKAGED", "DRAFT");
 
     private DomainValidationPredicates() {
@@ -70,4 +74,15 @@ public final class DomainValidationPredicates {
             (consumedAt, now) -> consumedAt != null
                     && now != null
                     && consumedAt.isBefore(now.minus(Duration.ofDays(365)));
+
+    public static final Predicate<String> IS_VALID_EMAIL =
+            email -> IS_NON_BLANK_TEXT.test(email) && EMAIL_PATTERN.matcher(email.trim()).matches();
+
+    public static final Predicate<String> IS_VALID_PASSWORD =
+            password -> password != null
+                    && password.length() >= MIN_PASSWORD_LENGTH
+                    && password.length() <= MAX_PASSWORD_LENGTH;
+
+    public static final Predicate<String> IS_VALID_IANA_TIMEZONE =
+            timezone -> IS_NON_BLANK_TEXT.test(timezone) && ZoneId.getAvailableZoneIds().contains(timezone.trim());
 }
