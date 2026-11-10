@@ -11,12 +11,12 @@ import com.beertracker.model.BeerPackaging;
 import com.beertracker.model.ConsumptionEntry;
 import com.beertracker.repository.BeerRepository;
 import com.beertracker.repository.ConsumptionRepository;
+import com.beertracker.validation.DomainValidationPredicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -64,21 +64,7 @@ public class ConsumptionService {
                         List.of(new ErrorDetail("packaging_id", "No packaging found with identifier " + request.packagingId()))
                 ));
 
-        int totalVolumeMl = request.quantity() * packaging.volumeMl();
-        ConsumptionEntry entry = new ConsumptionEntry(
-                UUID.randomUUID(),
-                beer.id(),
-                packaging.id(),
-                request.quantity(),
-                totalVolumeMl,
-                request.consumedAt(),
-                Instant.now(),
-                true,
-                true,
-                beer.name(),
-                packaging.volumeMl()
-        );
-
+        ConsumptionEntry entry = consumptionMapper.toEntity(request, beer, packaging);
         consumptionRepository.append(entry);
 
         int totalVolumeSoFar = consumptionRepository.findAll().stream()
@@ -103,7 +89,8 @@ public class ConsumptionService {
     }
 
     public ConsumptionPagedResponse listEntries(int page, int size) {
-        if (page < 0 || size < 1 || size > 100) {
+        if (!DomainValidationPredicates.IS_VALID_PAGE_INDEX.test(page)
+                || !DomainValidationPredicates.IS_VALID_PAGE_SIZE.test(size)) {
             throw new ApiException(
                     HttpStatus.BAD_REQUEST,
                     "BAD_REQUEST",
@@ -116,21 +103,7 @@ public class ConsumptionService {
                 .map(consumptionMapper::toResponse)
                 .toList();
 
-        int totalElements = all.size();
-        int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / size);
-        int fromIndex = Math.min(page * size, totalElements);
-        int toIndex = Math.min(fromIndex + size, totalElements);
-        List<ConsumptionEntryResponse> items = all.subList(fromIndex, toIndex);
-
-        return new ConsumptionPagedResponse(
-                items,
-                page,
-                size,
-                totalElements,
-                totalPages,
-                page + 1 < totalPages,
-                page > 0
-        );
+        return consumptionMapper.toPagedResponse(all, page, size);
     }
 
     public ConsumptionEntryResponse getEntryById(UUID id) {
@@ -154,7 +127,7 @@ public class ConsumptionService {
             );
         }
 
-        if (request.quantity() == null || request.quantity() < 1 || request.quantity() > 100) {
+        if (!DomainValidationPredicates.IS_VALID_CONSUMPTION_QUANTITY.test(request.quantity())) {
             throw new ApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "INVALID_QUANTITY",
@@ -173,7 +146,7 @@ public class ConsumptionService {
         }
 
         Instant now = Instant.now();
-        if (request.consumedAt().isAfter(now)) {
+        if (DomainValidationPredicates.IS_CONSUMED_AT_IN_FUTURE.test(request.consumedAt(), now)) {
             throw new ApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "CONSUMPTION_TIME_IN_FUTURE",
@@ -182,7 +155,7 @@ public class ConsumptionService {
             );
         }
 
-        if (request.consumedAt().isBefore(now.minus(Duration.ofDays(365)))) {
+        if (DomainValidationPredicates.IS_CONSUMED_AT_OLDER_THAN_ONE_YEAR.test(request.consumedAt(), now)) {
             throw new ApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "UNPROCESSABLE_ENTITY",

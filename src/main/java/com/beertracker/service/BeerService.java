@@ -8,21 +8,18 @@ import com.beertracker.dto.ErrorDetail;
 import com.beertracker.exception.ApiException;
 import com.beertracker.mapper.BeerMapper;
 import com.beertracker.model.Beer;
-import com.beertracker.model.BeerPackaging;
 import com.beertracker.repository.BeerRepository;
+import com.beertracker.validation.DomainValidationPredicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
@@ -42,35 +39,7 @@ public class BeerService {
     public BeerResponse createBeer(BeerCreateRequest request) {
         validateCreateRequest(request);
 
-        UUID beerId = UUID.randomUUID();
-        List<BeerPackaging> packagings = new ArrayList<>();
-        for (BeerPackagingCreateRequest pkgReq : request.packagings()) {
-            packagings.add(new BeerPackaging(
-                    UUID.randomUUID(),
-                    beerId,
-                    pkgReq.volumeMl(),
-                    pkgReq.packageType(),
-                    pkgReq.barcode() != null ? pkgReq.barcode().trim() : null
-            ));
-        }
-
-        Beer beer = new Beer(
-                beerId,
-                request.name().trim(),
-                request.brewery().trim(),
-                request.style().trim(),
-                request.abv(),
-                request.beerType(),
-                request.description(),
-                request.country(),
-                request.imageUrl(),
-                "UNVERIFIED",
-                null,
-                0,
-                List.copyOf(packagings),
-                Instant.now()
-        );
-
+        Beer beer = beerMapper.toEntity(request);
         beerRepository.save(beer);
 
         log.info("Beer registered in catalog",
@@ -86,22 +55,7 @@ public class BeerService {
 
     public BeerPagedResponse listBeers(String query, int page, int size) {
         long startNs = System.nanoTime();
-        if (page < 0) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "BAD_REQUEST",
-                    "Parameter 'page' must not be negative",
-                    List.of(new ErrorDetail("page", "Must be greater than or equal to 0"))
-            );
-        }
-        if (size < 1 || size > 100) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_PAGE_SIZE",
-                    "Parameter 'size' exceeds maximum allowed limit of 100",
-                    List.of(new ErrorDetail("size", "Must be between 1 and 100"))
-            );
-        }
+        validatePagination(page, size);
 
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         List<BeerResponse> filtered = beerRepository.findAll().stream()
@@ -111,57 +65,44 @@ public class BeerService {
                 .map(beerMapper::toResponse)
                 .toList();
 
-        int totalElements = filtered.size();
-        int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / size);
-        int fromIndex = Math.min(page * size, totalElements);
-        int toIndex = Math.min(fromIndex + size, totalElements);
-        List<BeerResponse> pageItems = filtered.subList(fromIndex, toIndex);
+        BeerPagedResponse pagedResponse = beerMapper.toPagedResponse(filtered, page, size);
 
         double durationMs = (System.nanoTime() - startNs) / 1_000_000.0;
         log.info("Catalog search executed",
                 kv("event", "catalog_search"),
                 kv("query", query),
-                kv("hits_count", pageItems.size()),
+                kv("hits_count", pagedResponse.items().size()),
                 kv("duration_ms", durationMs),
                 kv("status", "200"));
 
-        return new BeerPagedResponse(
-                pageItems,
-                page,
-                size,
-                totalElements,
-                totalPages,
-                page + 1 < totalPages,
-                page > 0
-        );
+        return pagedResponse;
+    }
+
+    private void validatePagination(int page, int size) {
+        if (!DomainValidationPredicates.IS_VALID_PAGE_INDEX.test(page)) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "BAD_REQUEST",
+                    "Parameter 'page' must not be negative",
+                    List.of(new ErrorDetail("page", "Must be greater than or equal to 0"))
+            );
+        }
+        if (!DomainValidationPredicates.IS_VALID_PAGE_SIZE.test(size)) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "INVALID_PAGE_SIZE",
+                    "Parameter 'size' exceeds maximum allowed limit of 100",
+                    List.of(new ErrorDetail("size", "Must be between 1 and 100"))
+            );
+        }
     }
 
     private void validateCreateRequest(BeerCreateRequest request) {
-        if (request == null || request.name() == null || request.name().isBlank()) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "BAD_REQUEST",
-                    "Required field 'name' is missing or empty",
-                    List.of(new ErrorDetail("name", "Field is required and cannot be blank"))
-            );
-        }
-        if (request.brewery() == null || request.brewery().isBlank()) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "BAD_REQUEST",
-                    "Required field 'brewery' is missing or empty",
-                    List.of(new ErrorDetail("brewery", "Field is required and cannot be blank"))
-            );
-        }
-        if (request.style() == null || request.style().isBlank()) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "BAD_REQUEST",
-                    "Required field 'style' is missing or empty",
-                    List.of(new ErrorDetail("style", "Field is required and cannot be blank"))
-            );
-        }
-        if (request.abv() == null || request.abv() < 0.0 || request.abv() > 100.0) {
+        requireNonBlank(request != null ? request.name() : null, "name");
+        requireNonBlank(request.brewery(), "brewery");
+        requireNonBlank(request.style(), "style");
+
+        if (!DomainValidationPredicates.IS_VALID_ABV.test(request.abv())) {
             throw new ApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "UNPROCESSABLE_ENTITY",
@@ -169,7 +110,7 @@ public class BeerService {
                     List.of(new ErrorDetail("abv", "ABV must be between 0.0 and 100.0"))
             );
         }
-        if (request.beerType() == null || (!"PACKAGED".equals(request.beerType()) && !"DRAFT".equals(request.beerType()))) {
+        if (!DomainValidationPredicates.IS_VALID_BEER_TYPE.test(request.beerType())) {
             throw new ApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "UNPROCESSABLE_ENTITY",
@@ -198,49 +139,76 @@ public class BeerService {
 
         Set<String> requestBarcodes = new HashSet<>();
         for (int i = 0; i < request.packagings().size(); i++) {
-            BeerPackagingCreateRequest pkg = request.packagings().get(i);
-            String fieldPrefix = "packagings[" + i + "]";
+            validatePackagingOption(request, request.packagings().get(i), i, requestBarcodes);
+        }
+    }
 
-            if (pkg.volumeMl() == null || pkg.volumeMl() < 50 || pkg.volumeMl() > 10000) {
+    private void validatePackagingOption(
+            BeerCreateRequest request,
+            BeerPackagingCreateRequest pkg,
+            int index,
+            Set<String> requestBarcodes
+    ) {
+        String fieldPrefix = "packagings[" + index + "]";
+
+        if (!DomainValidationPredicates.IS_VALID_PACKAGING_VOLUME.test(pkg.volumeMl())) {
+            throw new ApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "VOLUME_OUT_OF_BOUNDS",
+                    "Packaging volume must be strictly between 50 and 10000 ml",
+                    List.of(new ErrorDetail(fieldPrefix + ".volume_ml", "Volume must be between 50 and 10000 ml"))
+            );
+        }
+
+        if (DomainValidationPredicates.IS_DRAFT_PACKAGE_INCOMPATIBLE.test(request.beerType(), pkg.packageType())) {
+            throw new ApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "INVALID_PACKAGE_TYPE_FOR_DRAFT",
+                    "All packagings for DRAFT beer must have package_type DRAFT",
+                    List.of(new ErrorDetail(fieldPrefix + ".package_type", "Found '%s' for beer_type 'DRAFT'".formatted(pkg.packageType())))
+            );
+        }
+
+        if (DomainValidationPredicates.IS_PACKAGED_DRAFT_INCOMPATIBLE.test(request.beerType(), pkg.packageType())) {
+            throw new ApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "UNPROCESSABLE_ENTITY",
+                    "PACKAGED beer cannot have package_type DRAFT",
+                    List.of(new ErrorDetail(fieldPrefix + ".package_type", "package_type DRAFT is not allowed for PACKAGED beer"))
+            );
+        }
+
+        if (DomainValidationPredicates.HAS_BARCODE.test(pkg.barcode())) {
+            if (!DomainValidationPredicates.IS_VALID_BARCODE_FORMAT.test(pkg.barcode())) {
                 throw new ApiException(
                         HttpStatus.UNPROCESSABLE_ENTITY,
-                        "VOLUME_OUT_OF_BOUNDS",
-                        "Packaging volume must be strictly between 50 and 10000 ml",
-                        List.of(new ErrorDetail(fieldPrefix + ".volume_ml", "Volume must be between 50 and 10000 ml"))
+                        "INVALID_BARCODE_FORMAT",
+                        "Barcode must consist of 8 to 14 digits",
+                        List.of(new ErrorDetail(fieldPrefix + ".barcode", "Barcode must match ^\\d{8,14}$"))
                 );
             }
-
-            if ("DRAFT".equals(request.beerType()) && !"DRAFT".equals(pkg.packageType())) {
+            String barcode = pkg.barcode().trim();
+            Optional<Beer> existingByBarcode = beerRepository.findByBarcode(barcode);
+            if (existingByBarcode.isPresent() || !requestBarcodes.add(barcode)) {
+                String assignedTo = existingByBarcode.map(Beer::name).orElse(request.name());
                 throw new ApiException(
-                        HttpStatus.UNPROCESSABLE_ENTITY,
-                        "INVALID_PACKAGE_TYPE_FOR_DRAFT",
-                        "All packagings for DRAFT beer must have package_type DRAFT",
-                        List.of(new ErrorDetail(fieldPrefix + ".package_type", "Found '%s' for beer_type 'DRAFT'".formatted(pkg.packageType())))
+                        HttpStatus.CONFLICT,
+                        "DUPLICATE_BARCODE_CONFLICT",
+                        "Штрих-код " + barcode + " уже прив'язаний до іншого товару",
+                        List.of(new ErrorDetail(fieldPrefix + ".barcode", "Barcode " + barcode + " is already assigned to " + assignedTo))
                 );
             }
+        }
+    }
 
-            if ("PACKAGED".equals(request.beerType()) && "DRAFT".equals(pkg.packageType())) {
-                throw new ApiException(
-                        HttpStatus.UNPROCESSABLE_ENTITY,
-                        "UNPROCESSABLE_ENTITY",
-                        "PACKAGED beer cannot have package_type DRAFT",
-                        List.of(new ErrorDetail(fieldPrefix + ".package_type", "package_type DRAFT is not allowed for PACKAGED beer"))
-                );
-            }
-
-            if (pkg.barcode() != null && !pkg.barcode().isBlank()) {
-                String barcode = pkg.barcode().trim();
-                Optional<Beer> existingByBarcode = beerRepository.findByBarcode(barcode);
-                if (existingByBarcode.isPresent() || !requestBarcodes.add(barcode)) {
-                    String assignedTo = existingByBarcode.map(Beer::name).orElse(request.name());
-                    throw new ApiException(
-                            HttpStatus.CONFLICT,
-                            "DUPLICATE_BARCODE_CONFLICT",
-                            "Штрих-код " + barcode + " уже прив'язаний до іншого товару",
-                            List.of(new ErrorDetail(fieldPrefix + ".barcode", "Barcode " + barcode + " is already assigned to " + assignedTo))
-                    );
-                }
-            }
+    private void requireNonBlank(String value, String fieldName) {
+        if (!DomainValidationPredicates.IS_NON_BLANK_TEXT.test(value)) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "BAD_REQUEST",
+                    "Required field '%s' is missing or empty".formatted(fieldName),
+                    List.of(new ErrorDetail(fieldName, "Field is required and cannot be blank"))
+            );
         }
     }
 }
