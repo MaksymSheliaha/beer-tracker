@@ -74,23 +74,23 @@
 ### 4.1. Єдиний механізм пагінації
 1. **Вхідні query-параметри:**
    - `page` — індекс сторінки з нуля (`type: integer`, `minimum: 0`, `default: 0`);
-   - `size` — розмір сторінки (`type: integer`, `minimum: 1`, `maximum: 100`, `default: 20`; для `GET /wishlist-items` `default: 50`). Передача значення поза діапазоном `[1..100]` або нецілого типу відхиляється зі статусом `400 Bad Request`.
+   - `size` — розмір сторінки (`type: integer`, `minimum: 1`, `maximum: 100`, `default: 20`). Передача значення поза діапазоном `[1..100]` або нецілого типу відхиляється зі статусом `400 Bad Request`.
 2. **Вихідні контейнери сторінкових відповідей:**
    - Схеми [`BeerPagedResponse`](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml#L3083-L3116) та [`ConsumptionPagedResponse`](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml#L3438-L3471) повертають обов'язкові поля: `items` (`array`), `page`, `size`, `total_elements`, `total_pages`, `has_next` (`boolean`), `has_previous` (`boolean`).
    - Схеми [`BeerVersionPagedResponse`](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml#L3201-L3226), [`WishlistPagedResponse`](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml#L3651-L3676) та [`CollectionPagedResponse`](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml#L3714-L3739) повертають: `items` (`array`), `page`, `size`, `total_elements`, `total_pages`.
 
-### 4.2. Матриця query-параметрів фільтрації та сортування
+### 4.2. Матриця query-параметрів фільтрації та пагінації
 
 | Ендпоінт (`api/openapi.yaml`) | Додані Query-параметри | Типи, обмеження та значення за замовчуванням |
 | :--- | :--- | :--- |
-| `GET /beers` (`listBeers`) | `query`, `brewery`, `style`, `country`, `beer_type`, `barcode`, `page`, `size`, `sort` | `country`: `minLength: 2, maxLength: 2` (ISO 3166-1 alpha-2);<br>`beer_type`: `enum [PACKAGED, DRAFT]`;<br>`sort`: формат `field,direction`, `default: "name,asc"` (підтримує `"rating_avg,desc"`). |
+| `GET /beers` (`listBeers`) | `query`, `min_abv`, `max_abv`, `page`, `size` | `query`: текстовий пошук за назвою або броварнею;<br>`min_abv`, `max_abv`: `number` (`0.0..100.0`, згідно з `REQ-F-015` / `SRS-ADD-002`);<br>`page >= 0` (`default: 0`), `size 1..100` (`default: 20`). |
 | `GET /beers/{id}` (`getBeerById`) | `verified_only` | `boolean`, `default: false` (формалізує `AC-003.3`). |
 | `GET /beer-versions` (`listPendingBeerVersions`) | `status`, `page`, `size` | `status`: `enum [UNVERIFIED, VERIFIED, REJECTED]`, `default: UNVERIFIED`. |
 | `GET /moderation-items/queue` (`listModerationQueue`) | `page`, `size` | `page >= 0` (`default: 0`), `size 1..100` (`default: 20`). |
-| `GET /consumption-entries` (`listConsumptionEntries`) | `date_from`, `date_to`, `beer_id`, `page`, `size` | `date_from`, `date_to`: ISO 8601 `format: date` (`YYYY-MM-DD`);<br>`beer_id`: `format: uuid` (фільтр історії за конкретним напоєм). |
+| `GET /consumption-entries` (`listConsumptionEntries`) | `page`, `size` | `page >= 0` (`default: 0`), `size 1..100` (`default: 20`). |
 | `GET /analytics/consumption` (`getConsumptionAnalytics`) | `date`, `date_from`, `date_to` | Усі — `format: date` (`YYYY-MM-DD`): `date` задає цільову добу для погодинного профілю (`AC-012.3`), `date_from`/`date_to` — довільний інтервал агрегації. |
-| `GET /wishlist-items` (`listWishlistItems`) | `page`, `size` | `page >= 0` (`default: 0`), `size 1..100` (`default: 50`). |
-| `GET /collections/tasted` (`getTastedCollection`) | `page`, `size`, `sort` | `sort`: `string`, `default: "last_consumed_at,desc"`. |
+| `GET /wishlist-items` (`listWishlistItems`) | `page`, `size` | `page >= 0` (`default: 0`), `size 1..100` (`default: 20`). |
+| `GET /collections/tasted` (`getTastedCollection`) | `page`, `size` | `page >= 0` (`default: 0`), `size 1..100` (`default: 20`). |
 
 ---
 

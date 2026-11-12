@@ -1,5 +1,6 @@
 package com.beertracker;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,6 +9,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import java.util.UUID;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -23,6 +27,9 @@ class BeerCatalogIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     @DisplayName("REQ-F-001 / AC-001.1: POST /api/v1/beers creates product with UNVERIFIED status and returns 201 Created")
@@ -356,5 +363,60 @@ class BeerCatalogIntegrationTest {
                         .param("max_abv", "4.0"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_ABV_RANGE"));
+    }
+
+    @Test
+    @DisplayName("REQ-F-003 / AC-003.3: GET /api/v1/beers/{id} returns latest draft by default, base version when verified_only=true, and 404 when missing")
+    void shouldGetBeerByIdWithVerifiedOnlyOptionAndReturn404WhenMissing() throws Exception {
+        String payload = """
+                {
+                  "name": "Varvar Artisan IPA",
+                  "brewery": "Varvar",
+                  "style": "India Pale Ale",
+                  "abv": 6.0,
+                  "beer_type": "PACKAGED",
+                  "country": "UA",
+                  "packagings": [
+                    {
+                      "volume_ml": 500,
+                      "package_type": "BOTTLE",
+                      "barcode": "4820199990012"
+                    }
+                  ]
+                }
+                """;
+
+        MvcResult createdResult = mockMvc.perform(post("/api/v1/beers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String beerId = objectMapper.readTree(createdResult.getResponse().getContentAsString()).get("id").asText();
+
+        String authorToken = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "contributor@example.com");
+        mockMvc.perform(post("/api/v1/beers/" + beerId + "/versions")
+                        .header("Authorization", "Bearer " + authorToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"style\": \"India Pale Ale (West Coast)\"}"))
+                .andExpect(status().isCreated());
+
+        // Default (verified_only=false) returns latest proposed draft attributes
+        mockMvc.perform(get("/api/v1/beers/" + beerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(beerId))
+                .andExpect(jsonPath("$.style").value("India Pale Ale (West Coast)"));
+
+        // verified_only=true returns original un-overlaid catalog attributes
+        mockMvc.perform(get("/api/v1/beers/" + beerId)
+                        .param("verified_only", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(beerId))
+                .andExpect(jsonPath("$.style").value("India Pale Ale"));
+
+        // Non-existent ID returns 404 BEER_NOT_FOUND
+        mockMvc.perform(get("/api/v1/beers/" + UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("BEER_NOT_FOUND"));
     }
 }

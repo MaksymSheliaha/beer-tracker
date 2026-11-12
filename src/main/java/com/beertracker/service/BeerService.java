@@ -4,22 +4,28 @@ import com.beertracker.dto.BeerCreateRequest;
 import com.beertracker.dto.BeerPackagingCreateRequest;
 import com.beertracker.dto.BeerPagedResponse;
 import com.beertracker.dto.BeerResponse;
+import com.beertracker.dto.BeerVersionCreateRequest;
 import com.beertracker.dto.ErrorDetail;
 import com.beertracker.exception.ApiException;
 import com.beertracker.mapper.BeerMapper;
 import com.beertracker.model.Beer;
+import com.beertracker.model.BeerPackaging;
+import com.beertracker.model.BeerVersion;
 import com.beertracker.repository.BeerRepository;
+import com.beertracker.repository.BeerVersionRepository;
 import com.beertracker.validation.DomainValidationPredicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
@@ -29,11 +35,62 @@ public class BeerService {
     private static final Logger log = LoggerFactory.getLogger(BeerService.class);
 
     private final BeerRepository beerRepository;
+    private final BeerVersionRepository beerVersionRepository;
     private final BeerMapper beerMapper;
 
-    public BeerService(BeerRepository beerRepository, BeerMapper beerMapper) {
+    public BeerService(
+            BeerRepository beerRepository,
+            BeerVersionRepository beerVersionRepository,
+            BeerMapper beerMapper
+    ) {
         this.beerRepository = beerRepository;
+        this.beerVersionRepository = beerVersionRepository;
         this.beerMapper = beerMapper;
+    }
+
+    public BeerResponse getBeerById(UUID id, boolean verifiedOnly) {
+        Beer beer = beerRepository.findById(id)
+                .filter(b -> !"PLACEHOLDER".equals(b.status())
+                        && !"DELETED".equals(b.status())
+                        && !"MERGED".equals(b.status()))
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "BEER_NOT_FOUND",
+                        "Beer with specified identifier was not found",
+                        List.of(new ErrorDetail("id", "No product found with identifier '" + id + "'"))
+                ));
+
+        if (!verifiedOnly) {
+            Optional<BeerVersion> draftOpt = beerVersionRepository.findActiveUnverifiedByBeerId(id);
+            if (draftOpt.isPresent() && draftOpt.get().payload() != null) {
+                BeerVersionCreateRequest p = draftOpt.get().payload();
+                List<BeerPackaging> combinedPackagings = new ArrayList<>(beer.packagings());
+                if (p.packagings() != null) {
+                    for (BeerPackagingCreateRequest pkgReq : p.packagings()) {
+                        combinedPackagings.add(beerMapper.toPackagingEntity(beer.id(), pkgReq));
+                    }
+                }
+                Beer effectiveBeer = new Beer(
+                        beer.id(),
+                        p.name() != null ? p.name().trim() : beer.name(),
+                        p.brewery() != null ? p.brewery().trim() : beer.brewery(),
+                        p.style() != null ? p.style().trim() : beer.style(),
+                        p.abv() != null ? p.abv() : beer.abv(),
+                        p.beerType() != null ? p.beerType() : beer.beerType(),
+                        p.description() != null ? p.description() : beer.description(),
+                        p.country() != null ? p.country() : beer.country(),
+                        p.imageUrl() != null ? p.imageUrl() : beer.imageUrl(),
+                        beer.status(),
+                        beer.ratingAvg(),
+                        beer.reviewsCount(),
+                        List.copyOf(combinedPackagings),
+                        beer.createdAt()
+                );
+                return beerMapper.toResponse(effectiveBeer);
+            }
+        }
+
+        return beerMapper.toResponse(beer);
     }
 
     public BeerResponse createBeer(BeerCreateRequest request) {

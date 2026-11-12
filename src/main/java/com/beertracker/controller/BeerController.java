@@ -6,6 +6,7 @@ import com.beertracker.dto.BeerResponse;
 import com.beertracker.service.BeerService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/beers")
@@ -29,6 +31,14 @@ public class BeerController {
         BeerResponse created = beerService.createBeer(request);
         URI location = URI.create("/api/v1/beers/" + created.id());
         return ResponseEntity.created(location).body(created);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<BeerResponse> getBeerById(
+            @PathVariable("id") UUID id,
+            @RequestParam(name = "verified_only", defaultValue = "false") boolean verifiedOnly
+    ) {
+        return ResponseEntity.ok(beerService.getBeerById(id, verifiedOnly));
     }
 
     @GetMapping
