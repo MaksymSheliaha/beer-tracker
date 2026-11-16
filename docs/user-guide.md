@@ -172,8 +172,16 @@ curl -s -X POST http://localhost:8080/api/v1/consumption-entries \
 
 ## 8. Сценарій 7: Дії модератора (`MODERATOR` only)
 
+Публічна реєстрація (`POST /api/v1/auth/register`) завжди створює обліковий запис зі звичайною роллю `USER` (для запобігання самопризначенню прав), а при запуску база H2 не містить попередньо засіяних акаунтів модератора. Водночас сервер перевіряє роль `MODERATOR` за підписаним HMAC-SHA256 JWT (`JwtRequestAuthenticator`), тому перевірити режим модератора можна локально без змін коду:
+
+1. **Згенеруйте тимчасовий HS256 JWT (TTL 15 хв) із `"role": "MODERATOR"`** (команда сумісна з PowerShell і Bash; якщо сервер запущено з власним `--security.jwt.secret`, замініть значення змінної `s`):
+```bash
+python -c "import base64,hmac,hashlib,json,time,uuid; s=b'beer-tracker-default-hmac-sha256-secret-key-2026-sdd-tdd'; b=lambda d: base64.urlsafe_b64encode(d).rstrip(b'=').decode(); t=int(time.time()); x=b(json.dumps({'alg':'HS256','typ':'JWT'},separators=(',',':')).encode())+'.'+b(json.dumps({'sub':str(uuid.uuid4()),'email':'moderator@beertracker.local','role':'MODERATOR','iat':t,'exp':t+900},separators=(',',':')).encode()); print(x+'.'+b(hmac.new(s,x.encode(),hashlib.sha256).digest()))"
+```
+2. **Авторизуйтеся у Swagger UI або `curl`:** у Swagger UI (`http://localhost:8080/swagger-ui.html`) натисніть **`Authorize`** і вставте згенерований токен (без префікса `Bearer`), або передайте його в заголовку `Authorization: Bearer <MODERATOR_TOKEN>`.
+
 Усі операції нижче доступні лише для JWT-токенів із роллю `MODERATOR` (звичайний `USER` отримує `403 Forbidden`):
-- **М'яке видалення (`DELETE /api/v1/beers/{id}`):** переводить пиво у `Placeholder Beer` (`"Видалений продукт"`), приховує з каталогу і вішлістів, зберігаючи історичний літраж користувачів.
+- **М'яке видалення (`DELETE /api/v1/beers/{id}`):** повертає `204 No Content`, переводить пиво у `Placeholder Beer` (`"Видалений продукт"`), приховує з каталогу і вішлістів, зберігаючи історичний літраж користувачів.
 - **Злиття дублікатів (`POST /api/v1/merges`):** об'єднує `source_beer_id` $\rightarrow$ `target_beer_id` з міграцією пакувань, записів споживання та архівацією старіших дублікатних відгуків (`422 CANNOT_MERGE_BEER_INTO_ITSELF` при однакових ID).
 - **Ручна верифікація/відхилення версії:** `POST /api/v1/beer-versions/{id}/verify` та `POST /api/v1/beer-versions/{id}/reject`.
 - **Опрацювання черги модерації:**
