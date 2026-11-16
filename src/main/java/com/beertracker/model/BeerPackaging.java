@@ -11,6 +11,11 @@ import jakarta.persistence.Table;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * JPA entity representing a physical packaging variant ({@code BOTTLE}, {@code CAN},
+ * {@code DRAFT}, {@code KEG}) for a {@link Beer} with fixed volume in ml and optional unique
+ * barcode ({@code REQ-F-001}, {@code REQ-F-002}).
+ */
 @Entity
 @Table(name = "beer_packagings")
 public class BeerPackaging {
@@ -38,6 +43,15 @@ public class BeerPackaging {
     protected BeerPackaging() {
     }
 
+    /**
+     * Constructs a packaging variant bound to a parent beer identifier.
+     *
+     * @param id          packaging UUID
+     * @param beerId      parent beer UUID
+     * @param volumeMl    container volume in milliliters ({@code 50..10000})
+     * @param packageType packaging category ({@code BOTTLE}, {@code CAN}, {@code DRAFT}, {@code KEG})
+     * @param barcode     optional unique numeric barcode (8..14 digits)
+     */
     public BeerPackaging(
             UUID id,
             UUID beerId,
@@ -72,10 +86,20 @@ public class BeerPackaging {
         return barcode;
     }
 
+    /**
+     * Returns the owning catalog beer entity.
+     *
+     * @return the owning beer
+     */
     public Beer getBeer() {
         return beer;
     }
 
+    /**
+     * Associates this packaging variant with the owning beer and synchronizes {@code beerId}.
+     *
+     * @param beer owning beer entity
+     */
     public void setBeer(Beer beer) {
         this.beer = beer;
         if (beer != null) {
@@ -125,8 +149,12 @@ public class BeerPackaging {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof BeerPackaging that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof BeerPackaging that)) {
+            return false;
+        }
         return Objects.equals(id, that.id);
     }
 

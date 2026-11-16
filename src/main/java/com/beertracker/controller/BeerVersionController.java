@@ -5,11 +5,8 @@ import com.beertracker.dto.BeerVersionPagedResponse;
 import com.beertracker.dto.BeerVersionResponse;
 import com.beertracker.dto.BeerVersionVoteRequest;
 import com.beertracker.dto.BeerVersionVoteResponse;
-import com.beertracker.dto.ErrorDetail;
-import com.beertracker.exception.ApiException;
-import com.beertracker.security.JwtTokenProvider;
+import com.beertracker.security.JwtRequestAuthenticator;
 import com.beertracker.service.BeerVersionService;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,26 +23,46 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * REST controller managing wiki-style {@code BeerVersion} drafts and community consensus voting
+ * ({@code REQ-F-003}, {@code REQ-F-004}, {@code REQ-F-005}, {@code REQ-NF-009}).
+ */
 @RestController
 @RequestMapping("/api/v1")
 public class BeerVersionController {
 
     private final BeerVersionService beerVersionService;
-    private final JwtTokenProvider jwtTokenProvider;
+    private final JwtRequestAuthenticator jwtRequestAuthenticator;
 
-    public BeerVersionController(BeerVersionService beerVersionService, JwtTokenProvider jwtTokenProvider) {
+    /**
+     * Constructs the versioning and voting controller.
+     *
+     * @param beerVersionService      service managing version drafts and consensus voting
+     * @param jwtRequestAuthenticator Bearer JWT extractor and verifier
+     */
+    public BeerVersionController(
+            BeerVersionService beerVersionService,
+            JwtRequestAuthenticator jwtRequestAuthenticator
+    ) {
         this.beerVersionService = beerVersionService;
-        this.jwtTokenProvider = jwtTokenProvider;
+        this.jwtRequestAuthenticator = jwtRequestAuthenticator;
     }
 
+    /**
+     * Proposes a new {@code UNVERIFIED} {@code BeerVersion} draft for an existing catalog beer.
+     *
+     * @param beerId     UUID of the target beer product
+     * @param authHeader HTTP {@code Authorization} header carrying a valid Bearer token
+     * @param request    proposed attribute changes and/or additional packagings
+     * @return {@code 201 Created} with {@link BeerVersionResponse}
+     */
     @PostMapping("/beers/{id}/versions")
     public ResponseEntity<BeerVersionResponse> createBeerVersion(
             @PathVariable("id") UUID beerId,
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestBody BeerVersionCreateRequest request
     ) {
-        UUID authorId = extractAuthenticatedUserId(authHeader);
-        MDC.put("user_id", authorId.toString());
+        UUID authorId = jwtRequestAuthenticator.requireUserId(authHeader);
         MDC.put("status", "201");
 
         BeerVersionResponse created = beerVersionService.createBeerVersion(beerId, authorId, request);
@@ -54,62 +71,58 @@ public class BeerVersionController {
                 .body(created);
     }
 
+    /**
+     * Lists all version drafts associated with the specified beer in chronological order.
+     *
+     * @param beerId UUID of the beer product
+     * @return {@code 200 OK} with list of {@link BeerVersionResponse}
+     */
     @GetMapping("/beers/{id}/versions")
     public ResponseEntity<List<BeerVersionResponse>> listBeerVersions(@PathVariable("id") UUID beerId) {
         MDC.put("status", "200");
         return ResponseEntity.status(HttpStatus.OK).body(beerVersionService.listBeerVersions(beerId));
     }
 
+    /**
+     * Lists version drafts filtered by verification status for authenticated community voters.
+     *
+     * @param authHeader HTTP {@code Authorization} header carrying a valid Bearer token
+     * @param status     target status filter ({@code UNVERIFIED}, {@code VERIFIED}, or {@code REJECTED})
+     * @param page       zero-based page index
+     * @param size       number of items per page (1..100)
+     * @return {@code 200 OK} with {@link BeerVersionPagedResponse}
+     */
     @GetMapping("/beer-versions")
     public ResponseEntity<BeerVersionPagedResponse> listVersionsByStatus(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestParam(value = "status", defaultValue = "UNVERIFIED") String status,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "20") int size
     ) {
+        jwtRequestAuthenticator.requireUserId(authHeader);
         MDC.put("status", "200");
-        return ResponseEntity.status(HttpStatus.OK).body(beerVersionService.listVersionsByStatus(status, page, size));
+        return ResponseEntity.status(HttpStatus.OK)
+                .body(beerVersionService.listVersionsByStatus(status, page, size));
     }
 
+    /**
+     * Casts a {@code CONFIRM} or {@code REJECT} community vote on a proposed version draft.
+     *
+     * @param versionId  UUID of the target {@code BeerVersion}
+     * @param authHeader HTTP {@code Authorization} header carrying a valid Bearer token
+     * @param request    vote payload containing {@code vote_type}
+     * @return {@code 200 OK} with updated vote counters and status in {@link BeerVersionVoteResponse}
+     */
     @PostMapping("/beer-versions/{id}/votes")
     public ResponseEntity<BeerVersionVoteResponse> voteBeerVersion(
             @PathVariable("id") UUID versionId,
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestBody BeerVersionVoteRequest request
     ) {
-        UUID voterId = extractAuthenticatedUserId(authHeader);
-        MDC.put("user_id", voterId.toString());
+        UUID voterId = jwtRequestAuthenticator.requireUserId(authHeader);
         MDC.put("status", "200");
 
         BeerVersionVoteResponse response = beerVersionService.vote(versionId, voterId, request);
         return ResponseEntity.status(HttpStatus.OK).body(response);
-    }
-
-    private UUID extractAuthenticatedUserId(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            throw new ApiException(
-                    HttpStatus.UNAUTHORIZED,
-                    "UNAUTHORIZED",
-                    "Full authentication is required to access this resource",
-                    List.of(new ErrorDetail("Authorization", "Missing or invalid Bearer JWT token"))
-            );
-        }
-        String token = authHeader.substring("Bearer ".length()).trim();
-        JsonNode claims = jwtTokenProvider.validateAndParseToken(token)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.UNAUTHORIZED,
-                        "UNAUTHORIZED",
-                        "Full authentication is required to access this resource",
-                        List.of(new ErrorDetail("Authorization", "Missing or invalid Bearer JWT token"))
-                ));
-        try {
-            return UUID.fromString(claims.path("sub").asText());
-        } catch (Exception e) {
-            throw new ApiException(
-                    HttpStatus.UNAUTHORIZED,
-                    "UNAUTHORIZED",
-                    "Invalid subject in JWT token",
-                    List.of(new ErrorDetail("Authorization", "Invalid user identifier in token"))
-            );
-        }
     }
 }

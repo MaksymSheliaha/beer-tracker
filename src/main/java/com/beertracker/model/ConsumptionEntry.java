@@ -9,6 +9,10 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * Append-only JPA entity recording an immutable beer consumption event for a specific user
+ * and {@link BeerPackaging} ({@code REQ-F-006}, {@code REQ-F-007}).
+ */
 @Entity
 @Table(name = "consumption_entries")
 public class ConsumptionEntry {
@@ -53,6 +57,23 @@ public class ConsumptionEntry {
     protected ConsumptionEntry() {
     }
 
+    /**
+     * Constructs an immutable consumption log entry with server-computed volume and
+     * synchronized collection/wishlist flags.
+     *
+     * @param id                  consumption entry UUID
+     * @param userId              authenticated owner UUID
+     * @param beerId              consumed catalog beer UUID
+     * @param packagingId         consumed packaging UUID
+     * @param quantity            unit count consumed ({@code 1..100})
+     * @param totalVolumeMl       computed {@code quantity * packagingVolumeMl}
+     * @param consumedAt          UTC consumption timestamp
+     * @param createdAt           UTC server recording timestamp
+     * @param wishlistAutoremoved whether the beer was removed from wishlist in this transaction
+     * @param collectionAdded     whether the beer belongs to the user's tasted collection
+     * @param beerName            cached display name (or {@code "Видалений продукт"})
+     * @param packagingVolumeMl   volume of a single packaging unit in milliliters
+     */
     public ConsumptionEntry(
             UUID id,
             UUID userId,
@@ -79,35 +100,6 @@ public class ConsumptionEntry {
         this.collectionAdded = collectionAdded;
         this.beerName = beerName;
         this.packagingVolumeMl = packagingVolumeMl;
-    }
-
-    public ConsumptionEntry(
-            UUID id,
-            UUID beerId,
-            UUID packagingId,
-            Integer quantity,
-            Integer totalVolumeMl,
-            Instant consumedAt,
-            Instant createdAt,
-            boolean wishlistAutoremoved,
-            boolean collectionAdded,
-            String beerName,
-            Integer packagingVolumeMl
-    ) {
-        this(
-                id,
-                UUID.fromString("00000000-0000-0000-0000-000000000000"),
-                beerId,
-                packagingId,
-                quantity,
-                totalVolumeMl,
-                consumedAt,
-                createdAt,
-                wishlistAutoremoved,
-                collectionAdded,
-                beerName,
-                packagingVolumeMl
-        );
     }
 
     public UUID id() {
@@ -256,8 +248,12 @@ public class ConsumptionEntry {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof ConsumptionEntry that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ConsumptionEntry that)) {
+            return false;
+        }
         return Objects.equals(id, that.id);
     }
 

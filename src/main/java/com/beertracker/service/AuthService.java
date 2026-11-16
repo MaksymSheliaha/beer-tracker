@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -26,10 +28,14 @@ import java.util.List;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
+/**
+ * Service handling user registration, BCrypt password verification, stateless JWT issuance,
+ * and single-use Refresh Token rotation ({@code REQ-NF-004}, {@code REQ-NF-006}).
+ */
 @Service
 public class AuthService {
 
-    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AuthService.class);
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -37,6 +43,15 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
 
+    /**
+     * Constructs the authentication service.
+     *
+     * @param userRepository         repository storing user accounts
+     * @param refreshTokenRepository repository tracking refresh token revocation state
+     * @param userMapper             mapper between {@link User} and public {@link UserResponse}
+     * @param passwordEncoder        BCrypt password encoder (cost &gt;= 12)
+     * @param jwtTokenProvider       HMAC-SHA256 JWT token generator
+     */
     public AuthService(
             UserRepository userRepository,
             RefreshTokenRepository refreshTokenRepository,
@@ -51,6 +66,16 @@ public class AuthService {
         this.jwtTokenProvider = jwtTokenProvider;
     }
 
+    /**
+     * Registers a new user with a salted BCrypt password hash and validated IANA timezone.
+     *
+     * @param request registration payload containing email, password, and timezone
+     * @return sanitized {@link UserResponse} without password hash fields
+     * @throws ApiException with {@code 400 BAD_REQUEST} if payload is null,
+     *                      {@code 422 UNPROCESSABLE_ENTITY} for invalid email/password/timezone,
+     *                      or {@code 409 CONFLICT} ({@code EMAIL_ALREADY_EXISTS}) if email is taken
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public UserResponse register(UserRegisterRequest request) {
         validateRegistration(request);
 
@@ -67,7 +92,7 @@ public class AuthService {
         User user = userMapper.toEntity(request, passwordHash);
         userRepository.save(user);
 
-        log.info("User account registered",
+        LOG.info("User account registered",
                 kv("event", "user_registered"),
                 kv("user_id", user.id().toString()),
                 kv("role", user.role()),
@@ -77,6 +102,16 @@ public class AuthService {
         return userMapper.toResponse(user);
     }
 
+    /**
+     * Verifies user credentials and issues a 15-minute Access Token paired with a
+     * 30-day Refresh Token.
+     *
+     * @param request login credentials payload
+     * @return {@link TokenResponse} containing Bearer tokens and expiration metadata
+     * @throws ApiException with {@code 401 UNAUTHORIZED} ({@code INVALID_CREDENTIALS})
+     *                      when email is unknown or password verification fails
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public TokenResponse login(UserLoginRequest request) {
         if (request == null
                 || !DomainValidationPredicates.IS_NON_BLANK_TEXT.test(request.email())
@@ -88,7 +123,7 @@ public class AuthService {
                 .orElseThrow(this::invalidCredentialsException);
 
         if (!passwordEncoder.matches(request.password(), user.passwordHash())) {
-            log.warn("Authentication failed due to invalid credentials",
+            LOG.warn("Authentication failed due to invalid credentials",
                     kv("event", "security_violation_audit"),
                     kv("violation_type", "INVALID_CREDENTIALS"),
                     kv("status", "401"));
@@ -97,7 +132,7 @@ public class AuthService {
 
         TokenResponse tokens = issueTokenPair(user);
 
-        log.info("User authenticated via JWT",
+        LOG.info("User authenticated via JWT",
                 kv("event", "user_authenticated"),
                 kv("user_id", user.id().toString()),
                 kv("role", user.role()),
@@ -107,6 +142,15 @@ public class AuthService {
         return tokens;
     }
 
+    /**
+     * Rotates a single-use Refresh Token, revoking the presented token and issuing a new pair.
+     *
+     * @param request payload carrying the current {@code refresh_token}
+     * @return freshly issued {@link TokenResponse}
+     * @throws ApiException with {@code 401 UNAUTHORIZED} ({@code INVALID_REFRESH_TOKEN})
+     *                      when the token is missing, expired, or already rotated
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public TokenResponse refresh(RefreshTokenRequest request) {
         if (request == null || !DomainValidationPredicates.IS_NON_BLANK_TEXT.test(request.refreshToken())) {
             throw invalidRefreshTokenException();
@@ -115,7 +159,7 @@ public class AuthService {
         Instant now = Instant.now();
         RefreshToken consumed = refreshTokenRepository.consumeIfActive(request.refreshToken(), now)
                 .orElseThrow(() -> {
-                    log.warn("Refresh token rotation rejected (expired, invalid, or already used)",
+                    LOG.warn("Refresh token rotation rejected (expired, invalid, or already used)",
                             kv("event", "security_violation_audit"),
                             kv("violation_type", "INVALID_REFRESH_TOKEN"),
                             kv("status", "401"));
@@ -127,7 +171,7 @@ public class AuthService {
 
         TokenResponse rotatedTokens = issueTokenPair(user);
 
-        log.info("Refresh token rotated once",
+        LOG.info("Refresh token rotated once",
                 kv("event", "token_refreshed"),
                 kv("user_id", user.id().toString()),
                 kv("status", "200"));

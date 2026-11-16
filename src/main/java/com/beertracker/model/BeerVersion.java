@@ -16,6 +16,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * JPA entity representing a user-proposed wiki draft version of a catalog {@link Beer}
+ * awaiting community voting consensus ({@code N=5}) or moderator decision
+ * ({@code REQ-F-003}, {@code REQ-F-004}, {@code REQ-F-005}).
+ */
 @Entity
 @Table(name = "beer_versions")
 public class BeerVersion {
@@ -52,6 +57,18 @@ public class BeerVersion {
     protected BeerVersion() {
     }
 
+    /**
+     * Constructs a {@link BeerVersion} entity with vote counters and lifecycle status.
+     *
+     * @param id           version UUID
+     * @param beerId       target catalog beer UUID
+     * @param authorId     author user UUID
+     * @param payload      proposed attribute changes and/or new packagings
+     * @param confirmVotes accumulated {@code CONFIRM} vote count
+     * @param rejectVotes  accumulated {@code REJECT} vote count
+     * @param status       lifecycle status ({@code UNVERIFIED}, {@code VERIFIED}, {@code REJECTED})
+     * @param createdAt    UTC creation timestamp
+     */
     public BeerVersion(
             UUID id,
             UUID beerId,
@@ -178,8 +195,12 @@ public class BeerVersion {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof BeerVersion that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof BeerVersion that)) {
+            return false;
+        }
         return Objects.equals(id, that.id);
     }
 

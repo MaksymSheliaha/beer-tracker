@@ -11,98 +11,140 @@ import com.beertracker.exception.ApiException;
 import com.beertracker.mapper.BeerMapper;
 import com.beertracker.mapper.BeerVersionMapper;
 import com.beertracker.model.Beer;
-import com.beertracker.model.BeerPackaging;
 import com.beertracker.model.BeerVersion;
 import com.beertracker.model.VersionVote;
 import com.beertracker.repository.BeerRepository;
 import com.beertracker.repository.BeerVersionRepository;
 import com.beertracker.repository.VersionVoteRepository;
 import com.beertracker.validation.DomainValidationPredicates;
+import com.beertracker.validation.PaginationHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
+/**
+ * Service coordinating wiki-style {@link BeerVersion} proposals, fork protection,
+ * and race-free community consensus voting ({@code N=5})
+ * ({@code REQ-F-003}, {@code REQ-F-004}, {@code REQ-F-005}, {@code REQ-NF-009}).
+ */
 @Service
 public class BeerVersionService {
 
-    private static final Logger log = LoggerFactory.getLogger(BeerVersionService.class);
+    /**
+     * Fixed consensus threshold of identical votes required for automatic verification or rejection.
+     */
     public static final int CONSENSUS_THRESHOLD = 5;
+
+    private static final Logger LOG = LoggerFactory.getLogger(BeerVersionService.class);
 
     private final BeerVersionRepository beerVersionRepository;
     private final VersionVoteRepository versionVoteRepository;
     private final BeerRepository beerRepository;
     private final BeerVersionMapper beerVersionMapper;
     private final BeerMapper beerMapper;
+    private final ReadCommittedTxExecutor txExecutor;
 
+    /**
+     * Constructs the version management service.
+     *
+     * @param beerVersionRepository repository for beer versions and monitor locks
+     * @param versionVoteRepository repository for unique user votes
+     * @param beerRepository        repository for catalog beers
+     * @param beerVersionMapper     mapper for version DTOs
+     * @param beerMapper            mapper applying verified payloads to catalog beers
+     * @param txExecutor            ACID {@code READ_COMMITTED} transaction executor
+     */
     public BeerVersionService(
             BeerVersionRepository beerVersionRepository,
             VersionVoteRepository versionVoteRepository,
             BeerRepository beerRepository,
             BeerVersionMapper beerVersionMapper,
-            BeerMapper beerMapper
+            BeerMapper beerMapper,
+            ReadCommittedTxExecutor txExecutor
     ) {
         this.beerVersionRepository = beerVersionRepository;
         this.versionVoteRepository = versionVoteRepository;
         this.beerRepository = beerRepository;
         this.beerVersionMapper = beerVersionMapper;
         this.beerMapper = beerMapper;
+        this.txExecutor = txExecutor;
     }
 
+    /**
+     * Creates a new {@code UNVERIFIED} {@link BeerVersion} draft while guaranteeing at most one
+     * active unverified draft per beer ({@code AC-003.1}, {@code AC-003.2}).
+     *
+     * @param beerId   target catalog beer UUID
+     * @param authorId authenticated author UUID
+     * @param request  proposed attribute changes and/or packagings
+     * @return created {@link BeerVersionResponse}
+     * @throws ApiException with {@code 404 NOT_FOUND} if the beer does not exist or is inactive,
+     *                      {@code 409 CONFLICT} on concurrent draft or duplicate barcode,
+     *                      or {@code 422 UNPROCESSABLE_ENTITY} on domain validation errors
+     */
     public BeerVersionResponse createBeerVersion(UUID beerId, UUID authorId, BeerVersionCreateRequest request) {
-        Beer beer = beerRepository.findById(beerId)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "NOT_FOUND",
-                        "Resource requested at /beers/" + beerId + "/versions was not found",
-                        List.of(new ErrorDetail("id", "Requested resource with the specified identifier was not found"))
-                ));
-
-        validateVersionPayload(beer, request);
-
         synchronized (beerVersionRepository.getLockForBeerDraft(beerId)) {
-            Optional<BeerVersion> existingDraft = beerVersionRepository.findActiveUnverifiedByBeerId(beerId);
-            if (existingDraft.isPresent()) {
-                throw new ApiException(
-                        HttpStatus.CONFLICT,
-                        "CONCURRENT_DRAFT_CONFLICT",
-                        "An active unverified version already exists for this beer product",
-                        List.of(new ErrorDetail(
-                                "beer_id",
-                                "Pending draft '%s' must be resolved first".formatted(existingDraft.get().id())
-                        ))
-                );
-            }
+            return txExecutor.execute(() -> {
+                Beer beer = beerRepository.findActiveById(beerId)
+                        .orElseThrow(() -> new ApiException(
+                                HttpStatus.NOT_FOUND,
+                                "NOT_FOUND",
+                                "Resource requested at /beers/" + beerId + "/versions was not found",
+                                List.of(new ErrorDetail("id", "Requested resource with specified ID was not found"))
+                        ));
 
-            BeerVersion version = beerVersionMapper.toEntity(beerId, authorId, request);
-            beerVersionRepository.save(version);
+                validateVersionPayload(beer, request);
 
-            log.info("Beer version draft created",
-                    kv("event", "beer_version_created"),
-                    kv("version_id", version.id().toString()),
-                    kv("beer_id", beerId.toString()),
-                    kv("author_id", authorId.toString()),
-                    kv("status", "201"));
+                Optional<BeerVersion> existingDraft = beerVersionRepository.findActiveUnverifiedByBeerId(beerId);
+                if (existingDraft.isPresent()) {
+                    String issue = "Pending draft '%s' must be resolved first".formatted(existingDraft.get().id());
+                    throw new ApiException(
+                            HttpStatus.CONFLICT,
+                            "CONCURRENT_DRAFT_CONFLICT",
+                            "An active unverified version already exists for this beer product",
+                            List.of(new ErrorDetail("beer_id", issue))
+                    );
+                }
 
-            return beerVersionMapper.toResponse(version);
+                BeerVersion version = beerVersionMapper.toEntity(beerId, authorId, request);
+                beerVersionRepository.save(version);
+
+                LOG.info("Beer version draft created",
+                        kv("event", "beer_version_created"),
+                        kv("version_id", version.id().toString()),
+                        kv("beer_id", beerId.toString()),
+                        kv("author_id", authorId.toString()),
+                        kv("status", "201"));
+
+                return beerVersionMapper.toResponse(version);
+            });
         }
     }
 
+    /**
+     * Lists all versions proposed for an active catalog beer in chronological order.
+     *
+     * @param beerId catalog beer UUID
+     * @return list of {@link BeerVersionResponse}
+     * @throws ApiException with {@code 404 NOT_FOUND} if the beer does not exist or is inactive
+     */
+    @Transactional(readOnly = true)
     public List<BeerVersionResponse> listBeerVersions(UUID beerId) {
-        if (beerRepository.findById(beerId).isEmpty()) {
+        if (beerRepository.findActiveById(beerId).isEmpty()) {
             throw new ApiException(
                     HttpStatus.NOT_FOUND,
                     "NOT_FOUND",
                     "Resource requested at /beers/" + beerId + "/versions was not found",
-                    List.of(new ErrorDetail("id", "Requested resource with the specified identifier was not found"))
+                    List.of(new ErrorDetail("id", "Requested resource with specified ID was not found"))
             );
         }
 
@@ -111,16 +153,17 @@ public class BeerVersionService {
                 .toList();
     }
 
+    /**
+     * Lists paginated version drafts filtered by status.
+     *
+     * @param status optional status filter ({@code UNVERIFIED}, {@code VERIFIED}, {@code REJECTED})
+     * @param page   zero-based page index
+     * @param size   page size (1..100)
+     * @return paginated {@link BeerVersionPagedResponse}
+     */
+    @Transactional(readOnly = true)
     public BeerVersionPagedResponse listVersionsByStatus(String status, int page, int size) {
-        if (!DomainValidationPredicates.IS_VALID_PAGE_INDEX.test(page)
-                || !DomainValidationPredicates.IS_VALID_PAGE_SIZE.test(size)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "BAD_REQUEST",
-                    "Invalid pagination parameters",
-                    List.of(new ErrorDetail("size", "Must be between 1 and 100"))
-            );
-        }
+        PaginationHelper.validate(page, size);
 
         List<BeerVersionResponse> filtered = beerVersionRepository.findByStatus(status).stream()
                 .map(beerVersionMapper::toResponse)
@@ -129,6 +172,20 @@ public class BeerVersionService {
         return beerVersionMapper.toPagedResponse(filtered, page, size);
     }
 
+    /**
+     * Records a community {@code CONFIRM} or {@code REJECT} vote inside a per-version monitor lock
+     * and {@code READ_COMMITTED} transaction, triggering automatic status transition at {@code N=5}
+     * ({@code AC-004.1}..{@code AC-005.3}, {@code REQ-NF-009}).
+     *
+     * @param versionId version draft UUID
+     * @param voterId   authenticated voter UUID
+     * @param request   vote payload ({@code CONFIRM} or {@code REJECT})
+     * @return updated counters and lifecycle status in {@link BeerVersionVoteResponse}
+     * @throws ApiException with {@code 403 FORBIDDEN} on self-voting,
+     *                      {@code 404 NOT_FOUND} if version does not exist,
+     *                      {@code 409 CONFLICT} on duplicate vote,
+     *                      or {@code 422 UNPROCESSABLE_ENTITY} for invalid vote type
+     */
     public BeerVersionVoteResponse vote(UUID versionId, UUID voterId, BeerVersionVoteRequest request) {
         if (request == null
                 || request.voteType() == null
@@ -142,132 +199,112 @@ public class BeerVersionService {
         }
 
         synchronized (beerVersionRepository.getLockForVersion(versionId)) {
-            BeerVersion version = beerVersionRepository.findById(versionId)
-                    .orElseThrow(() -> new ApiException(
-                            HttpStatus.NOT_FOUND,
-                            "NOT_FOUND",
-                            "Resource requested at /beer-versions/" + versionId + "/votes was not found",
-                            List.of(new ErrorDetail("id", "Requested resource with the specified identifier was not found"))
-                    ));
+            return txExecutor.execute(() -> {
+                BeerVersion version = beerVersionRepository.findById(versionId)
+                        .orElseThrow(() -> new ApiException(
+                                HttpStatus.NOT_FOUND,
+                                "NOT_FOUND",
+                                "Resource requested at /beer-versions/" + versionId + "/votes was not found",
+                                List.of(new ErrorDetail("id", "Requested resource with specified ID was not found"))
+                        ));
 
-            if (voterId.equals(version.authorId())) {
-                log.warn("Author attempted to vote on own version",
-                        kv("event", "security_violation_audit"),
-                        kv("violation_type", "SELF_VOTING_FORBIDDEN"),
-                        kv("user_id", voterId.toString()),
-                        kv("version_id", versionId.toString()),
-                        kv("status", "403"));
-                throw new ApiException(
-                        HttpStatus.FORBIDDEN,
-                        "SELF_VOTING_FORBIDDEN",
-                        "Authors are forbidden from voting on their own proposed versions",
-                        List.of(new ErrorDetail("user_id", "User is the author of version '" + versionId + "'"))
+                if (voterId.equals(version.authorId())) {
+                    LOG.warn("Author attempted to vote on own version",
+                            kv("event", "security_violation_audit"),
+                            kv("violation_type", "SELF_VOTING_FORBIDDEN"),
+                            kv("user_id", voterId.toString()),
+                            kv("version_id", versionId.toString()),
+                            kv("status", "403"));
+                    throw new ApiException(
+                            HttpStatus.FORBIDDEN,
+                            "SELF_VOTING_FORBIDDEN",
+                            "Authors are forbidden from voting on their own proposed versions",
+                            List.of(new ErrorDetail("user_id", "User is the author of version '" + versionId + "'"))
+                    );
+                }
+
+                if (versionVoteRepository.existsByUserIdAndVersionId(voterId, versionId)) {
+                    String issue = "A vote from the current user has already been recorded for this version";
+                    throw new ApiException(
+                            HttpStatus.CONFLICT,
+                            "DUPLICATE_VOTE_CONFLICT",
+                            "User has already cast a vote for this version",
+                            List.of(new ErrorDetail("id", issue))
+                    );
+                }
+
+                VersionVote vote = new VersionVote(
+                        UUID.randomUUID(),
+                        versionId,
+                        voterId,
+                        request.voteType(),
+                        Instant.now()
                 );
-            }
+                versionVoteRepository.saveAndFlush(vote);
 
-            VersionVote vote = new VersionVote(
-                    UUID.randomUUID(),
-                    versionId,
-                    voterId,
-                    request.voteType(),
-                    Instant.now()
-            );
+                int newConfirmVotes = version.confirmVotes() + ("CONFIRM".equals(request.voteType()) ? 1 : 0);
+                int newRejectVotes = version.rejectVotes() + ("REJECT".equals(request.voteType()) ? 1 : 0);
+                String newStatus = version.status();
+                String message = "Vote recorded successfully";
 
-            if (versionVoteRepository.existsByUserIdAndVersionId(voterId, versionId)) {
-                throw new ApiException(
-                        HttpStatus.CONFLICT,
-                        "DUPLICATE_VOTE_CONFLICT",
-                        "User has already cast a vote for this version",
-                        List.of(new ErrorDetail("id", "A vote from the current user has already been recorded for this version"))
+                if ("UNVERIFIED".equals(version.status()) && newConfirmVotes >= CONSENSUS_THRESHOLD) {
+                    newStatus = "VERIFIED";
+                    message = "Version successfully verified by community consensus (threshold N=5 reached)";
+                    applyVerifiedVersionToCatalog(version);
+
+                    LOG.info("Beer version verified by community consensus",
+                            kv("event", "version_verification_completed"),
+                            kv("version_id", versionId.toString()),
+                            kv("beer_id", version.beerId().toString()),
+                            kv("previous_status", "UNVERIFIED"),
+                            kv("new_status", "VERIFIED"),
+                            kv("trigger", "COMMUNITY_CONSENSUS"),
+                            kv("confirm_votes", newConfirmVotes),
+                            kv("reject_votes", newRejectVotes),
+                            kv("status", "200"));
+                } else if ("UNVERIFIED".equals(version.status()) && newRejectVotes >= CONSENSUS_THRESHOLD) {
+                    newStatus = "REJECTED";
+                    message = "Version rejected by community consensus (threshold N=5 reached)";
+                    applyRejectedVersionToCatalogIfNewProduct(version.beerId());
+
+                    LOG.info("Beer version rejected by community consensus",
+                            kv("event", "version_verification_completed"),
+                            kv("version_id", versionId.toString()),
+                            kv("beer_id", version.beerId().toString()),
+                            kv("previous_status", "UNVERIFIED"),
+                            kv("new_status", "REJECTED"),
+                            kv("trigger", "COMMUNITY_CONSENSUS"),
+                            kv("confirm_votes", newConfirmVotes),
+                            kv("reject_votes", newRejectVotes),
+                            kv("status", "200"));
+                }
+
+                BeerVersion updatedVersion = new BeerVersion(
+                        version.id(),
+                        version.beerId(),
+                        version.authorId(),
+                        version.payload(),
+                        newConfirmVotes,
+                        newRejectVotes,
+                        newStatus,
+                        version.createdAt()
                 );
-            }
-            versionVoteRepository.saveAndFlush(vote);
+                beerVersionRepository.save(updatedVersion);
 
-            int newConfirmVotes = version.confirmVotes() + ("CONFIRM".equals(request.voteType()) ? 1 : 0);
-            int newRejectVotes = version.rejectVotes() + ("REJECT".equals(request.voteType()) ? 1 : 0);
-            String newStatus = version.status();
-            String message = "Vote recorded successfully";
-
-            if ("UNVERIFIED".equals(version.status()) && newConfirmVotes >= CONSENSUS_THRESHOLD) {
-                newStatus = "VERIFIED";
-                message = "Version successfully verified by community consensus (threshold N=5 reached)";
-                applyVerifiedVersionToCatalog(version);
-
-                log.info("Beer version verified by community consensus",
-                        kv("event", "version_verification_completed"),
-                        kv("version_id", versionId.toString()),
-                        kv("beer_id", version.beerId().toString()),
-                        kv("previous_status", "UNVERIFIED"),
-                        kv("new_status", "VERIFIED"),
-                        kv("trigger", "COMMUNITY_CONSENSUS"),
-                        kv("confirm_votes", newConfirmVotes),
-                        kv("reject_votes", newRejectVotes),
-                        kv("status", "200"));
-            } else if ("UNVERIFIED".equals(version.status()) && newRejectVotes >= CONSENSUS_THRESHOLD) {
-                newStatus = "REJECTED";
-                message = "Version rejected by community consensus (threshold N=5 reached)";
-                applyRejectedVersionToCatalogIfNewProduct(version.beerId());
-
-                log.info("Beer version rejected by community consensus",
-                        kv("event", "version_verification_completed"),
-                        kv("version_id", versionId.toString()),
-                        kv("beer_id", version.beerId().toString()),
-                        kv("previous_status", "UNVERIFIED"),
-                        kv("new_status", "REJECTED"),
-                        kv("trigger", "COMMUNITY_CONSENSUS"),
-                        kv("confirm_votes", newConfirmVotes),
-                        kv("reject_votes", newRejectVotes),
-                        kv("status", "200"));
-            }
-
-            BeerVersion updatedVersion = new BeerVersion(
-                    version.id(),
-                    version.beerId(),
-                    version.authorId(),
-                    version.payload(),
-                    newConfirmVotes,
-                    newRejectVotes,
-                    newStatus,
-                    version.createdAt()
-            );
-            beerVersionRepository.save(updatedVersion);
-
-            return new BeerVersionVoteResponse(
-                    updatedVersion.id(),
-                    updatedVersion.confirmVotes(),
-                    updatedVersion.rejectVotes(),
-                    updatedVersion.status(),
-                    message
-            );
+                return new BeerVersionVoteResponse(
+                        updatedVersion.id(),
+                        updatedVersion.confirmVotes(),
+                        updatedVersion.rejectVotes(),
+                        updatedVersion.status(),
+                        message
+                );
+            });
         }
     }
 
     private void applyVerifiedVersionToCatalog(BeerVersion version) {
         beerRepository.findById(version.beerId()).ifPresent(existingBeer -> {
-            BeerVersionCreateRequest p = version.payload();
-            List<BeerPackaging> updatedPackagings = new ArrayList<>(existingBeer.packagings());
-            if (p != null && p.packagings() != null && !p.packagings().isEmpty()) {
-                for (BeerPackagingCreateRequest pkgReq : p.packagings()) {
-                    updatedPackagings.add(beerMapper.toPackagingEntity(existingBeer.id(), pkgReq));
-                }
-            }
-
-            Beer updatedBeer = new Beer(
-                    existingBeer.id(),
-                    p != null && p.name() != null ? p.name().trim() : existingBeer.name(),
-                    p != null && p.brewery() != null ? p.brewery().trim() : existingBeer.brewery(),
-                    p != null && p.style() != null ? p.style().trim() : existingBeer.style(),
-                    p != null && p.abv() != null ? p.abv() : existingBeer.abv(),
-                    p != null && p.beerType() != null ? p.beerType() : existingBeer.beerType(),
-                    p != null && p.description() != null ? p.description() : existingBeer.description(),
-                    p != null && p.country() != null ? p.country() : existingBeer.country(),
-                    p != null && p.imageUrl() != null ? p.imageUrl() : existingBeer.imageUrl(),
-                    "VERIFIED",
-                    existingBeer.ratingAvg(),
-                    existingBeer.reviewsCount(),
-                    List.copyOf(updatedPackagings),
-                    existingBeer.createdAt()
-            );
+            Beer updatedBeer = beerMapper.mergeWithVersionPayload(existingBeer, version.payload(), "VERIFIED");
             beerRepository.save(updatedBeer);
         });
     }
@@ -315,6 +352,15 @@ public class BeerVersionService {
             );
         }
 
+        if (request.beerType() != null && !DomainValidationPredicates.IS_VALID_BEER_TYPE.test(request.beerType())) {
+            throw new ApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "UNPROCESSABLE_ENTITY",
+                    "Invalid beer_type",
+                    List.of(new ErrorDetail("beer_type", "Must be PACKAGED or DRAFT"))
+            );
+        }
+
         if (request.packagings() != null) {
             String effectiveBeerType = request.beerType() != null ? request.beerType() : beer.beerType();
             for (int i = 0; i < request.packagings().size(); i++) {
@@ -322,24 +368,47 @@ public class BeerVersionService {
                 String fieldPrefix = "packagings[" + i + "]";
 
                 if (!DomainValidationPredicates.IS_VALID_PACKAGING_VOLUME.test(pkg.volumeMl())) {
+                    String issue = "Volume must be between 50 and 10000 ml";
                     throw new ApiException(
                             HttpStatus.UNPROCESSABLE_ENTITY,
                             "VOLUME_OUT_OF_BOUNDS",
                             "Packaging volume must be strictly between 50 and 10000 ml",
-                            List.of(new ErrorDetail(fieldPrefix + ".volume_ml", "Volume must be between 50 and 10000 ml"))
+                            List.of(new ErrorDetail(fieldPrefix + ".volume_ml", issue))
                     );
                 }
 
-                if (DomainValidationPredicates.IS_DRAFT_PACKAGE_INCOMPATIBLE.test(effectiveBeerType, pkg.packageType())) {
+                if (DomainValidationPredicates.IS_DRAFT_PACKAGE_INCOMPATIBLE
+                        .test(effectiveBeerType, pkg.packageType())) {
+                    String issue = "Incompatible package_type for DRAFT";
                     throw new ApiException(
                             HttpStatus.UNPROCESSABLE_ENTITY,
                             "INVALID_PACKAGE_TYPE_FOR_DRAFT",
                             "All packagings for DRAFT beer must have package_type DRAFT",
-                            List.of(new ErrorDetail(fieldPrefix + ".package_type", "Incompatible package_type for DRAFT"))
+                            List.of(new ErrorDetail(fieldPrefix + ".package_type", issue))
+                    );
+                }
+
+                if (DomainValidationPredicates.IS_PACKAGED_DRAFT_INCOMPATIBLE
+                        .test(effectiveBeerType, pkg.packageType())) {
+                    String issue = "package_type DRAFT is not allowed for PACKAGED beer";
+                    throw new ApiException(
+                            HttpStatus.UNPROCESSABLE_ENTITY,
+                            "UNPROCESSABLE_ENTITY",
+                            "PACKAGED beer cannot have package_type DRAFT",
+                            List.of(new ErrorDetail(fieldPrefix + ".package_type", issue))
                     );
                 }
 
                 if (DomainValidationPredicates.HAS_BARCODE.test(pkg.barcode())) {
+                    if (!DomainValidationPredicates.IS_VALID_BARCODE_FORMAT.test(pkg.barcode())) {
+                        String issue = "Barcode must match ^\\d{8,14}$";
+                        throw new ApiException(
+                                HttpStatus.UNPROCESSABLE_ENTITY,
+                                "INVALID_BARCODE_FORMAT",
+                                "Barcode must consist of 8 to 14 digits",
+                                List.of(new ErrorDetail(fieldPrefix + ".barcode", issue))
+                        );
+                    }
                     String barcode = pkg.barcode().trim();
                     Optional<Beer> existingByBarcode = beerRepository.findByBarcode(barcode);
                     if (existingByBarcode.isPresent() && !existingByBarcode.get().id().equals(beer.id())) {

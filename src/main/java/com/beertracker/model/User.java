@@ -9,6 +9,10 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * JPA entity storing registered user credentials, RBAC role ({@code USER} or {@code MODERATOR}),
+ * and IANA timezone identifier ({@code REQ-NF-004}, {@code REQ-NF-006}, {@code REQ-F-012}).
+ */
 @Entity
 @Table(name = "users")
 public class User {
@@ -35,6 +39,16 @@ public class User {
     protected User() {
     }
 
+    /**
+     * Constructs a {@link User} account entity.
+     *
+     * @param id           user UUID
+     * @param email        normalized lowercase email address
+     * @param passwordHash salted BCrypt password hash
+     * @param role         RBAC role ({@code USER} or {@code MODERATOR})
+     * @param timezone     IANA timezone identifier (e.g., {@code Europe/Kyiv})
+     * @param createdAt    UTC account registration timestamp
+     */
     public User(
             UUID id,
             String email,
@@ -125,8 +139,12 @@ public class User {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof User user)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof User user)) {
+            return false;
+        }
         return Objects.equals(id, user.id);
     }
 

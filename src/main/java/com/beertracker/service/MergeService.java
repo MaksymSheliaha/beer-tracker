@@ -25,36 +25,65 @@ import java.util.UUID;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
+/**
+ * Service performing transactional catalog duplicate merging ({@code Merge}) with packaging
+ * mapping, consumption entry re-linking, review deduplication, and structured audit logging
+ * ({@code REQ-F-011}, {@code REQ-NF-007}, {@code REQ-NF-011}).
+ */
 @Service
 public class MergeService {
 
-    private static final Logger log = LoggerFactory.getLogger(MergeService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MergeService.class);
 
     private final BeerRepository beerRepository;
     private final ConsumptionRepository consumptionRepository;
     private final ReviewRepository reviewRepository;
     private final WishlistRepository wishlistRepository;
+    private final ReadCommittedTxExecutor txExecutor;
 
+    /**
+     * Constructs the catalog merge service.
+     *
+     * @param beerRepository        repository storing catalog beers and packagings
+     * @param consumptionRepository repository storing consumption entries to re-link
+     * @param reviewRepository      repository storing reviews to migrate/archive
+     * @param wishlistRepository    repository storing wishlist items to clean up
+     * @param txExecutor            ACID {@code READ_COMMITTED} transaction executor
+     */
     public MergeService(
             BeerRepository beerRepository,
             ConsumptionRepository consumptionRepository,
             ReviewRepository reviewRepository,
-            WishlistRepository wishlistRepository
+            WishlistRepository wishlistRepository,
+            ReadCommittedTxExecutor txExecutor
     ) {
         this.beerRepository = beerRepository;
         this.consumptionRepository = consumptionRepository;
         this.reviewRepository = reviewRepository;
         this.wishlistRepository = wishlistRepository;
+        this.txExecutor = txExecutor;
     }
 
-    public synchronized BeerMergeResponse mergeBeers(BeerMergeRequest request) {
+    /**
+     * Atomically merges {@code source_beer_id} into {@code target_beer_id} within a
+     * {@code READ_COMMITTED} ACID transaction ({@code AC-011.1}..{@code AC-011.4}).
+     *
+     * @param moderatorId authenticated moderator UUID executing the merge
+     * @param request     merge request identifying source duplicate and canonical target beers
+     * @return {@link BeerMergeResponse} detailing migrated consumptions, packagings, and archived reviews
+     * @throws ApiException with {@code 400 BAD_REQUEST} if IDs are missing,
+     *                      {@code 404 NOT_FOUND} if either beer is missing or inactive,
+     *                      or {@code 422 UNPROCESSABLE_ENTITY} on self-merge attempts
+     */
+    public synchronized BeerMergeResponse mergeBeers(UUID moderatorId, BeerMergeRequest request) {
         long startNs = System.nanoTime();
         if (request == null || request.sourceBeerId() == null || request.targetBeerId() == null) {
+            String issue = "Both source_beer_id and target_beer_id must be provided";
             throw new ApiException(
                     HttpStatus.BAD_REQUEST,
                     "BAD_REQUEST",
                     "source_beer_id and target_beer_id are required",
-                    List.of(new ErrorDetail("source_beer_id", "Both source_beer_id and target_beer_id must be provided"))
+                    List.of(new ErrorDetail("source_beer_id", issue))
             );
         }
 
@@ -70,128 +99,134 @@ public class MergeService {
             );
         }
 
-        Beer sourceBeer = beerRepository.findById(sourceBeerId)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "NOT_FOUND",
-                        "Resource requested at /merges was not found",
-                        List.of(new ErrorDetail("source_beer_id", "Source beer with specified identifier was not found"))
-                ));
+        return txExecutor.execute(() -> {
+            Beer sourceBeer = beerRepository.findActiveById(sourceBeerId)
+                    .orElseThrow(() -> {
+                        String issue = "Source beer with specified identifier was not found";
+                        return new ApiException(
+                                HttpStatus.NOT_FOUND,
+                                "NOT_FOUND",
+                                "Resource requested at /merges was not found",
+                                List.of(new ErrorDetail("source_beer_id", issue))
+                        );
+                    });
 
-        Beer targetBeer = beerRepository.findById(targetBeerId)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "NOT_FOUND",
-                        "Resource requested at /merges was not found",
-                        List.of(new ErrorDetail("target_beer_id", "Target beer with specified identifier was not found"))
-                ));
+            Beer targetBeer = beerRepository.findActiveById(targetBeerId)
+                    .orElseThrow(() -> {
+                        String issue = "Target beer with specified identifier was not found";
+                        return new ApiException(
+                                HttpStatus.NOT_FOUND,
+                                "NOT_FOUND",
+                                "Resource requested at /merges was not found",
+                                List.of(new ErrorDetail("target_beer_id", issue))
+                        );
+                    });
 
-        List<BeerPackaging> sourcePackagingsSnapshot = sourceBeer.packagings().stream()
-                .map(p -> new BeerPackaging(p.id(), p.beerId(), p.volumeMl(), p.packageType(), p.barcode()))
-                .toList();
+            List<BeerPackaging> sourcePackagingsSnapshot = sourceBeer.packagings().stream()
+                    .map(p -> new BeerPackaging(p.id(), p.beerId(), p.volumeMl(), p.packageType(), p.barcode()))
+                    .toList();
 
-        // 1. Mark sourceBeer as MERGED first so its barcodes are released from BeerRepository index
-        Beer mergedSourceBeer = new Beer(
-                sourceBeer.id(),
-                sourceBeer.name(),
-                sourceBeer.brewery(),
-                sourceBeer.style(),
-                sourceBeer.abv(),
-                sourceBeer.beerType(),
-                sourceBeer.description(),
-                sourceBeer.country(),
-                sourceBeer.imageUrl(),
-                "MERGED",
-                sourceBeer.ratingAvg(),
-                sourceBeer.reviewsCount(),
-                sourcePackagingsSnapshot,
-                sourceBeer.createdAt()
-        );
-        beerRepository.saveAndFlush(mergedSourceBeer);
+            // Mark sourceBeer as MERGED first so its barcodes are released from the unique constraint
+            Beer mergedSourceBeer = new Beer(
+                    sourceBeer.id(),
+                    sourceBeer.name(),
+                    sourceBeer.brewery(),
+                    sourceBeer.style(),
+                    sourceBeer.abv(),
+                    sourceBeer.beerType(),
+                    sourceBeer.description(),
+                    sourceBeer.country(),
+                    sourceBeer.imageUrl(),
+                    "MERGED",
+                    sourceBeer.ratingAvg(),
+                    sourceBeer.reviewsCount(),
+                    sourcePackagingsSnapshot,
+                    sourceBeer.createdAt()
+            );
+            beerRepository.saveAndFlush(mergedSourceBeer);
 
-        // 2. Migrate packagings from sourceBeer to targetBeer (AC-011.1)
-        List<BeerPackaging> updatedTargetPackagings = new ArrayList<>(targetBeer.packagings());
-        Map<UUID, UUID> packagingIdMapping = new HashMap<>();
-        int migratedPackagingsCount = 0;
+            List<BeerPackaging> updatedTargetPackagings = new ArrayList<>(targetBeer.packagings());
+            Map<UUID, UUID> packagingIdMapping = new HashMap<>();
+            int migratedPackagingsCount = 0;
 
-        for (BeerPackaging sourcePkg : sourcePackagingsSnapshot) {
-            Optional<BeerPackaging> equivalentTargetPkg = updatedTargetPackagings.stream()
-                    .filter(tp -> tp.packageType().equals(sourcePkg.packageType())
-                            && tp.volumeMl().equals(sourcePkg.volumeMl()))
-                    .findFirst();
+            for (BeerPackaging sourcePkg : sourcePackagingsSnapshot) {
+                Optional<BeerPackaging> equivalentTargetPkg = updatedTargetPackagings.stream()
+                        .filter(tp -> tp.packageType().equals(sourcePkg.packageType())
+                                && tp.volumeMl().equals(sourcePkg.volumeMl()))
+                        .findFirst();
 
-            if (equivalentTargetPkg.isPresent()) {
-                packagingIdMapping.put(sourcePkg.id(), equivalentTargetPkg.get().id());
-            } else {
-                BeerPackaging migratedPkg = new BeerPackaging(
-                        UUID.randomUUID(),
-                        targetBeerId,
-                        sourcePkg.volumeMl(),
-                        sourcePkg.packageType(),
-                        sourcePkg.barcode()
-                );
-                updatedTargetPackagings.add(migratedPkg);
-                packagingIdMapping.put(sourcePkg.id(), migratedPkg.id());
-                migratedPackagingsCount++;
+                if (equivalentTargetPkg.isPresent()) {
+                    packagingIdMapping.put(sourcePkg.id(), equivalentTargetPkg.get().id());
+                } else {
+                    BeerPackaging migratedPkg = new BeerPackaging(
+                            UUID.randomUUID(),
+                            targetBeerId,
+                            sourcePkg.volumeMl(),
+                            sourcePkg.packageType(),
+                            sourcePkg.barcode()
+                    );
+                    updatedTargetPackagings.add(migratedPkg);
+                    packagingIdMapping.put(sourcePkg.id(), migratedPkg.id());
+                    migratedPackagingsCount++;
+                }
             }
-        }
 
-        // 3. Migrate consumption entries (AC-011.2)
-        int migratedConsumptionsCount = consumptionRepository.migrateConsumptions(
-                sourceBeerId,
-                targetBeerId,
-                targetBeer.name(),
-                packagingIdMapping
-        );
+            int migratedConsumptionsCount = consumptionRepository.migrateConsumptions(
+                    sourceBeerId,
+                    targetBeerId,
+                    targetBeer.name(),
+                    packagingIdMapping
+            );
 
-        // 4. Migrate and deduplicate reviews (AC-011.3)
-        int archivedReviewsCount = reviewRepository.migrateAndDeduplicateReviews(sourceBeerId, targetBeerId);
+            int archivedReviewsCount = reviewRepository.migrateAndDeduplicateReviews(sourceBeerId, targetBeerId);
 
-        // 5. Remove duplicate wishlist entries for sourceBeer
-        wishlistRepository.removeAllByBeer(sourceBeerId);
+            wishlistRepository.removeAllByBeer(sourceBeerId);
 
-        // 6. Recalculate rating aggregates and save updated targetBeer
-        List<Review> activeTargetReviews = reviewRepository.findActiveByBeer(targetBeerId);
-        int reviewsCount = activeTargetReviews.size();
-        Double ratingAvg = reviewsCount == 0
-                ? null
-                : Math.round(activeTargetReviews.stream().mapToDouble(Review::rating).average().orElse(0.0) * 100.0) / 100.0;
+            List<Review> activeTargetReviews = reviewRepository.findActiveByBeer(targetBeerId);
+            int reviewsCount = activeTargetReviews.size();
+            Double ratingAvg = reviewsCount == 0
+                    ? null
+                    : Math.round(
+                            activeTargetReviews.stream().mapToDouble(Review::rating).average().orElse(0.0) * 100.0
+                    ) / 100.0;
 
-        Beer updatedTargetBeer = new Beer(
-                targetBeer.id(),
-                targetBeer.name(),
-                targetBeer.brewery(),
-                targetBeer.style(),
-                targetBeer.abv(),
-                targetBeer.beerType(),
-                targetBeer.description(),
-                targetBeer.country(),
-                targetBeer.imageUrl(),
-                targetBeer.status(),
-                ratingAvg,
-                reviewsCount,
-                List.copyOf(updatedTargetPackagings),
-                targetBeer.createdAt()
-        );
-        beerRepository.save(updatedTargetBeer);
+            Beer updatedTargetBeer = new Beer(
+                    targetBeer.id(),
+                    targetBeer.name(),
+                    targetBeer.brewery(),
+                    targetBeer.style(),
+                    targetBeer.abv(),
+                    targetBeer.beerType(),
+                    targetBeer.description(),
+                    targetBeer.country(),
+                    targetBeer.imageUrl(),
+                    targetBeer.status(),
+                    ratingAvg,
+                    reviewsCount,
+                    List.copyOf(updatedTargetPackagings),
+                    targetBeer.createdAt()
+            );
+            beerRepository.save(updatedTargetBeer);
 
-        double durationMs = (System.nanoTime() - startNs) / 1_000_000.0;
-        log.info("Catalog duplicate merge completed",
-                kv("event", "catalog_merge_completed"),
-                kv("source_beer_id", sourceBeerId.toString()),
-                kv("target_beer_id", targetBeerId.toString()),
-                kv("migrated_consumptions_count", migratedConsumptionsCount),
-                kv("migrated_packagings_count", migratedPackagingsCount),
-                kv("archived_reviews_count", archivedReviewsCount),
-                kv("duration_ms", durationMs),
-                kv("status", "200"));
+            double durationMs = (System.nanoTime() - startNs) / 1_000_000.0;
+            LOG.info("Catalog duplicate merge executed",
+                    kv("event", "catalog_merge_executed"),
+                    kv("moderator_id", moderatorId != null ? moderatorId.toString() : "unknown"),
+                    kv("source_beer_id", sourceBeerId.toString()),
+                    kv("target_beer_id", targetBeerId.toString()),
+                    kv("migrated_consumptions_count", migratedConsumptionsCount),
+                    kv("migrated_packagings_count", migratedPackagingsCount),
+                    kv("archived_reviews_count", archivedReviewsCount),
+                    kv("duration_ms", durationMs),
+                    kv("status", "200"));
 
-        return new BeerMergeResponse(
-                targetBeerId,
-                migratedConsumptionsCount,
-                migratedPackagingsCount,
-                archivedReviewsCount,
-                "MERGED"
-        );
+            return new BeerMergeResponse(
+                    targetBeerId,
+                    migratedConsumptionsCount,
+                    migratedPackagingsCount,
+                    archivedReviewsCount,
+                    "MERGED"
+            );
+        });
     }
 }

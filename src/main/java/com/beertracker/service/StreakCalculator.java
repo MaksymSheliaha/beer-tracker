@@ -11,9 +11,23 @@ import java.util.List;
 import java.util.NavigableSet;
 import java.util.TreeSet;
 
+/**
+ * Pure domain calculator determining consecutive consumption day streaks in a user's
+ * IANA timezone using the {@code [00:00:00.000, 24:00:00.000)} {@code Day Boundary}
+ * ({@code REQ-F-012}, {@code AC-012.1}, {@code AC-012.2}).
+ */
 @Component
 public class StreakCalculator {
 
+    /**
+     * Computes {@code current_streak}, {@code longest_streak}, {@code last_consumed_date},
+     * and {@code is_active_today} relative to {@code referenceNow} in {@code zoneId}.
+     *
+     * @param entries      user's consumption entries
+     * @param zoneId       user's IANA timezone
+     * @param referenceNow current reference instant (typically {@link Instant#now()})
+     * @return calculated {@link StreakResponse}
+     */
     public StreakResponse calculateStreaks(List<ConsumptionEntry> entries, ZoneId zoneId, Instant referenceNow) {
         LocalDate today = referenceNow.atZone(zoneId).toLocalDate();
 
@@ -33,7 +47,6 @@ public class StreakCalculator {
             return new StreakResponse(0, 0, null, false);
         }
 
-        // Longest streak calculation
         int longestStreak = 0;
         int runningStreak = 0;
         LocalDate previousDay = null;
@@ -49,9 +62,9 @@ public class StreakCalculator {
             previousDay = day;
         }
 
-        // Current streak calculation (must end on today or yesterday in user's timezone)
         boolean isActiveToday = activeDates.contains(today);
-        LocalDate anchorDay = isActiveToday ? today : (activeDates.contains(today.minusDays(1)) ? today.minusDays(1) : null);
+        LocalDate yesterday = today.minusDays(1);
+        LocalDate anchorDay = isActiveToday ? today : (activeDates.contains(yesterday) ? yesterday : null);
 
         int currentStreak = 0;
         if (anchorDay != null) {

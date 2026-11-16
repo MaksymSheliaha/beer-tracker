@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -27,15 +28,27 @@ import java.util.UUID;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
+/**
+ * Service computing user consumption time-series analytics, 24-hour profiles,
+ * and consumption day streaks anchored to each user's IANA timezone ({@code REQ-F-012}).
+ */
 @Service
+@Transactional(readOnly = true)
 public class AnalyticsService {
 
-    private static final Logger log = LoggerFactory.getLogger(AnalyticsService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticsService.class);
 
     private final ConsumptionRepository consumptionRepository;
     private final UserRepository userRepository;
     private final StreakCalculator streakCalculator;
 
+    /**
+     * Constructs the analytics service.
+     *
+     * @param consumptionRepository repository supplying user consumption logs
+     * @param userRepository        repository supplying user IANA timezones
+     * @param streakCalculator      calculator determining consecutive consumption day streaks
+     */
     public AnalyticsService(
             ConsumptionRepository consumptionRepository,
             UserRepository userRepository,
@@ -46,6 +59,14 @@ public class AnalyticsService {
         this.streakCalculator = streakCalculator;
     }
 
+    /**
+     * Calculates current and longest consumption streaks for the specified user in their
+     * configured IANA timezone, using the half-open {@code [00:00:00.000, 24:00:00.000)}
+     * day boundary ({@code AC-012.1}, {@code AC-012.2}).
+     *
+     * @param userId authenticated user UUID
+     * @return {@link StreakResponse} containing current/longest streak counts and active status
+     */
     public StreakResponse getStreaks(UUID userId) {
         long startNs = System.nanoTime();
         ZoneId zoneId = resolveUserZoneId(userId);
@@ -54,7 +75,7 @@ public class AnalyticsService {
         StreakResponse response = streakCalculator.calculateStreaks(userEntries, zoneId, Instant.now());
         double durationMs = (System.nanoTime() - startNs) / 1_000_000.0;
 
-        log.info("Streaks calculated for user",
+        LOG.info("Streaks calculated for user",
                 kv("event", "streaks_calculated"),
                 kv("user_id", userId.toString()),
                 kv("timezone", zoneId.getId()),
@@ -66,6 +87,17 @@ public class AnalyticsService {
         return response;
     }
 
+    /**
+     * Computes aggregated consumption volume, entry count, streaks, and a 24-slot hourly
+     * profile for an optional target date or date range ({@code AC-012.3}, {@code AC-012.4}).
+     *
+     * @param userId      authenticated user UUID
+     * @param dateStr     optional exact local date filter ({@code YYYY-MM-DD})
+     * @param dateFromStr optional inclusive start date filter ({@code YYYY-MM-DD})
+     * @param dateToStr   optional inclusive end date filter ({@code YYYY-MM-DD})
+     * @return {@link ConsumptionAnalyticsResponse} with 24 hourly slots
+     * @throws ApiException with HTTP {@code 400 BAD_REQUEST} when any date string fails ISO-8601 parsing
+     */
     public ConsumptionAnalyticsResponse getConsumptionAnalytics(
             UUID userId,
             String dateStr,
@@ -129,7 +161,7 @@ public class AnalyticsService {
         }
 
         double durationMs = (System.nanoTime() - startNs) / 1_000_000.0;
-        log.info("Consumption analytics calculated",
+        LOG.info("Consumption analytics calculated",
                 kv("event", "analytics_calculated"),
                 kv("user_id", userId.toString()),
                 kv("timezone", zoneId.getId()),

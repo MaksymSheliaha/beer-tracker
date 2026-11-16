@@ -31,8 +31,12 @@ class BeerCatalogIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    private String userAuthHeader() {
+        return "Bearer " + JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "catalog@example.com");
+    }
+
     @Test
-    @DisplayName("REQ-F-001 / AC-001.1: POST /api/v1/beers creates product with UNVERIFIED status and returns 201 Created")
+    @DisplayName("REQ-F-001 / AC-001.1: POST /api/v1/beers creates UNVERIFIED beer with 201")
     void shouldCreateBeerWithUnverifiedStatusAndReturn201() throws Exception {
         String payload = """
                 {
@@ -55,6 +59,7 @@ class BeerCatalogIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", userAuthHeader())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -73,6 +78,33 @@ class BeerCatalogIntegrationTest {
                 .andExpect(jsonPath("$.packagings[0].package_type").value("CAN"))
                 .andExpect(jsonPath("$.packagings[0].barcode").value("4820202600018"))
                 .andExpect(jsonPath("$.created_at").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("REQ-NF-004: POST /api/v1/beers without Authorization returns 401 UNAUTHORIZED")
+    void shouldReturn401WhenCreatingBeerWithoutAuthentication() throws Exception {
+        String payload = """
+                {
+                  "name": "Unauthorized Ale",
+                  "brewery": "Varvar",
+                  "style": "Pale Ale",
+                  "abv": 5.0,
+                  "beer_type": "PACKAGED",
+                  "packagings": [
+                    {
+                      "volume_ml": 500,
+                      "package_type": "CAN"
+                    }
+                  ]
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/beers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.traceId").isNotEmpty());
     }
 
     @Test
@@ -97,6 +129,7 @@ class BeerCatalogIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", userAuthHeader())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated());
@@ -118,7 +151,7 @@ class BeerCatalogIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-NF-008: GET /api/v1/beers with size > 100 returns 400 Bad Request (INVALID_PAGE_SIZE)")
+    @DisplayName("REQ-NF-008: GET /api/v1/beers with size > 100 returns 400 INVALID_PAGE_SIZE")
     void shouldReturn400WhenPageSizeExceedsMaximum() throws Exception {
         mockMvc.perform(get("/api/v1/beers")
                         .param("page", "0")
@@ -130,7 +163,7 @@ class BeerCatalogIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-001 / AC-001.2: POST /api/v1/beers with packaging volume < 50 ml returns 422 Unprocessable Entity")
+    @DisplayName("REQ-F-001 / AC-001.2: Packaging volume < 50 ml returns 422 VOLUME_OUT_OF_BOUNDS")
     void shouldReturn422WhenPackagingVolumeIsOutOfBounds() throws Exception {
         String payload = """
                 {
@@ -149,6 +182,7 @@ class BeerCatalogIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", userAuthHeader())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isUnprocessableEntity())
@@ -160,7 +194,7 @@ class BeerCatalogIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-001 / AC-001.3 & AC-001.4: POST /api/v1/beers with incompatible beer_type and package_type returns 422")
+    @DisplayName("REQ-F-001 / AC-001.3: DRAFT beer with BOTTLE packaging returns 422")
     void shouldReturn422WhenDraftBeerHasBottlePackaging() throws Exception {
         String draftWithBottlePayload = """
                 {
@@ -179,6 +213,7 @@ class BeerCatalogIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", userAuthHeader())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(draftWithBottlePayload))
                 .andExpect(status().isUnprocessableEntity())
@@ -188,8 +223,38 @@ class BeerCatalogIntegrationTest {
     }
 
     @Test
-    @DisplayName("BDD-SCN-004 / REQ-F-002 / AC-002.2: Duplicate barcode registration returns 409 Conflict")
-    void shouldReturn409OnDuplicateBarcode_BddScn004() throws Exception {
+    @DisplayName("REQ-F-001 / AC-001.4: PACKAGED beer with DRAFT packaging returns 422")
+    void shouldReturn422WhenPackagedBeerHasDraftPackaging() throws Exception {
+        String packagedWithDraftPayload = """
+                {
+                  "name": "Varvar Packaged Wrongly",
+                  "brewery": "Varvar",
+                  "style": "Golden Ale",
+                  "abv": 5.0,
+                  "beer_type": "PACKAGED",
+                  "packagings": [
+                    {
+                      "volume_ml": 500,
+                      "package_type": "DRAFT"
+                    }
+                  ]
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", userAuthHeader())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(packagedWithDraftPayload))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("UNPROCESSABLE_ENTITY"))
+                .andExpect(jsonPath("$.details[0].field").value("packagings[0].package_type"))
+                .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("BDD-SCN-004 / REQ-F-002 / AC-002.2: Duplicate barcode returns 409 Conflict")
+    void shouldReturn409OnDuplicateBarcodeBddScn004() throws Exception {
+        String authHeader = userAuthHeader();
         String existingBeerPayload = """
                 {
                   "name": "Pilsner Urquell",
@@ -208,6 +273,7 @@ class BeerCatalogIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(existingBeerPayload))
                 .andExpect(status().isCreated());
@@ -230,6 +296,7 @@ class BeerCatalogIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(duplicateBarcodePayload))
                 .andExpect(status().isConflict())
@@ -239,8 +306,9 @@ class BeerCatalogIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-002 / AC-002.1: Case-insensitive duplicate (brewery, name) returns 409 Conflict")
+    @DisplayName("REQ-F-002 / AC-002.1: Case-insensitive duplicate (brewery, name) returns 409")
     void shouldReturn409OnDuplicateBreweryAndNameCaseInsensitive() throws Exception {
+        String authHeader = userAuthHeader();
         String firstBeerPayload = """
                 {
                   "name": "Mova Dark Stout",
@@ -259,6 +327,7 @@ class BeerCatalogIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(firstBeerPayload))
                 .andExpect(status().isCreated());
@@ -281,6 +350,7 @@ class BeerCatalogIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(duplicateNamePayload))
                 .andExpect(status().isConflict())
@@ -290,8 +360,9 @@ class BeerCatalogIntegrationTest {
     }
 
     @Test
-    @DisplayName("BDD-SCN-006 / REQ-F-015 (SRS-ADD-002): GET /api/v1/beers filters by min_abv and max_abv and rejects invalid ABV range")
-    void shouldFilterBeersByAbvRangeAndRejectInvalidRange_BddScn006() throws Exception {
+    @DisplayName("BDD-SCN-006 / REQ-F-015: Filter by min_abv/max_abv and reject inverted range")
+    void shouldFilterBeersByAbvRangeAndRejectInvalidRangeBddScn006() throws Exception {
+        String authHeader = userAuthHeader();
         String lightBeer = """
                 {
                   "name": "Light Session IPA",
@@ -341,11 +412,20 @@ class BeerCatalogIntegrationTest {
                 }
                 """;
 
-        mockMvc.perform(post("/api/v1/beers").contentType(MediaType.APPLICATION_JSON).content(lightBeer))
+        mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", authHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(lightBeer))
                 .andExpect(status().isCreated());
-        mockMvc.perform(post("/api/v1/beers").contentType(MediaType.APPLICATION_JSON).content(mediumBeer))
+        mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", authHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mediumBeer))
                 .andExpect(status().isCreated());
-        mockMvc.perform(post("/api/v1/beers").contentType(MediaType.APPLICATION_JSON).content(strongBeer))
+        mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", authHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(strongBeer))
                 .andExpect(status().isCreated());
 
         // AC-015.1: Filter by [5.0 .. 8.0] -> returns only Mova Classic Stout (abv 5.8)
@@ -366,8 +446,9 @@ class BeerCatalogIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-003 / AC-003.3: GET /api/v1/beers/{id} returns latest draft by default, base version when verified_only=true, and 404 when missing")
+    @DisplayName("REQ-F-003 / AC-003.3: GET /beers/{id} supports verified_only and returns 404")
     void shouldGetBeerByIdWithVerifiedOnlyOptionAndReturn404WhenMissing() throws Exception {
+        String authHeader = userAuthHeader();
         String payload = """
                 {
                   "name": "Varvar Artisan IPA",
@@ -387,6 +468,7 @@ class BeerCatalogIntegrationTest {
                 """;
 
         MvcResult createdResult = mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -394,9 +476,8 @@ class BeerCatalogIntegrationTest {
 
         String beerId = objectMapper.readTree(createdResult.getResponse().getContentAsString()).get("id").asText();
 
-        String authorToken = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "contributor@example.com");
         mockMvc.perform(post("/api/v1/beers/" + beerId + "/versions")
-                        .header("Authorization", "Bearer " + authorToken)
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"style\": \"India Pale Ale (West Coast)\"}"))
                 .andExpect(status().isCreated());

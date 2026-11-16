@@ -13,6 +13,11 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * JPA entity recording a single user vote ({@code CONFIRM} or {@code REJECT}) on a
+ * {@link BeerVersion} draft, constrained uniquely on {@code (user_id, version_id)}
+ * ({@code REQ-F-004}, {@code REQ-NF-009}).
+ */
 @Entity
 @Table(
         name = "version_votes",
@@ -43,6 +48,15 @@ public class VersionVote {
     protected VersionVote() {
     }
 
+    /**
+     * Constructs a {@link VersionVote} entity.
+     *
+     * @param id        vote UUID
+     * @param versionId target {@link BeerVersion} UUID
+     * @param userId    voter user UUID
+     * @param voteType  vote action ({@code CONFIRM} or {@code REJECT})
+     * @param createdAt UTC voting timestamp
+     */
     public VersionVote(
             UUID id,
             UUID versionId,
@@ -127,8 +141,12 @@ public class VersionVote {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof VersionVote that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof VersionVote that)) {
+            return false;
+        }
         return Objects.equals(id, that.id);
     }
 

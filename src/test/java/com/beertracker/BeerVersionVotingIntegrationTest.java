@@ -1,6 +1,5 @@
 package com.beertracker;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,7 +56,9 @@ class BeerVersionVotingIntegrationTest {
                 }
                 """;
 
+        String creatorToken = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "creator@example.com");
         MvcResult result = mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", "Bearer " + creatorToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -67,7 +68,7 @@ class BeerVersionVotingIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-003 / AC-003.1: POST /api/v1/beers/{id}/versions creates UNVERIFIED draft with 0 votes and lists via GET endpoints")
+    @DisplayName("REQ-F-003 / AC-003.1: Create UNVERIFIED draft and list via GET endpoints")
     void shouldCreateDraftBeerVersionAndListVersions() throws Exception {
         String beerId = createSampleBeer();
         UUID authorId = UUID.randomUUID();
@@ -117,10 +118,41 @@ class BeerVersionVotingIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].id").value(versionId))
                 .andExpect(jsonPath("$.total_elements").value(1));
+
+        // Unauthenticated GET /api/v1/beer-versions returns 401 UNAUTHORIZED
+        mockMvc.perform(get("/api/v1/beer-versions"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
     @Test
-    @DisplayName("REQ-F-003 / AC-003.2: Second UNVERIFIED draft for the same beer returns 409 Conflict (CONCURRENT_DRAFT_CONFLICT)")
+    @DisplayName("REQ-F-001 / AC-001.4: Draft assigning DRAFT packaging to PACKAGED beer returns 422")
+    void shouldRejectIncompatibleDraftPackagingOnPackagedBeerVersion() throws Exception {
+        String beerId = createSampleBeer();
+        String authorToken = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "contributor@example.com");
+
+        String invalidVersionPayload = """
+                {
+                  "packagings": [
+                    {
+                      "volume_ml": 500,
+                      "package_type": "DRAFT"
+                    }
+                  ]
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/beers/" + beerId + "/versions")
+                        .header("Authorization", "Bearer " + authorToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalidVersionPayload))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("UNPROCESSABLE_ENTITY"))
+                .andExpect(jsonPath("$.details[0].field").value("packagings[0].package_type"));
+    }
+
+    @Test
+    @DisplayName("REQ-F-003 / AC-003.2: Second UNVERIFIED draft returns 409 CONCURRENT_DRAFT_CONFLICT")
     void shouldReturn409WhenActiveUnverifiedDraftAlreadyExists() throws Exception {
         String beerId = createSampleBeer();
         String authorToken = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "contributor@example.com");
@@ -148,7 +180,7 @@ class BeerVersionVotingIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-004 / AC-004.1 & AC-004.2: Author self-voting returns 403 Forbidden and duplicate vote by same user returns 409 Conflict")
+    @DisplayName("REQ-F-004 / AC-004.1 & AC-004.2: Self-vote returns 403 and duplicate vote returns 409")
     void shouldForbidAuthorSelfVoteAndRejectDuplicateVoteWith409() throws Exception {
         String beerId = createSampleBeer();
         UUID authorId = UUID.randomUUID();
@@ -209,8 +241,8 @@ class BeerVersionVotingIntegrationTest {
     }
 
     @Test
-    @DisplayName("BDD-SCN-002 / REQ-F-005 / REQ-NF-009: Parallel voting by 5 distinct users + duplicate attempts atomically transitions version to VERIFIED")
-    void shouldAutoVerifyVersionUponFiveConfirmVotesConcurrently_BddScn002() throws Exception {
+    @DisplayName("BDD-SCN-002 / REQ-F-005 / REQ-NF-009: Concurrent 5 CONFIRM votes auto-verify version")
+    void shouldAutoVerifyVersionUponFiveConfirmVotesConcurrentlyBddScn002() throws Exception {
         String beerId = createSampleBeer();
         UUID authorId = UUID.randomUUID();
         String authorToken = JwtTestTokenProvider.createUserToken(authorId, "contributor@example.com");
@@ -296,7 +328,7 @@ class BeerVersionVotingIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-005 / AC-005.2 & AC-005.3: Reaching 5 REJECT votes transitions version to REJECTED")
+    @DisplayName("REQ-F-005 / AC-005.2 & AC-005.3: 5 REJECT votes transition version to REJECTED")
     void shouldRejectVersionWhenFiveRejectVotesReached() throws Exception {
         String beerId = createSampleBeer();
         UUID authorId = UUID.randomUUID();
@@ -312,7 +344,8 @@ class BeerVersionVotingIntegrationTest {
         String versionId = objectMapper.readTree(createResult.getResponse().getContentAsString()).get("id").asText();
 
         for (int i = 1; i <= 4; i++) {
-            String voterToken = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "rejecter" + i + "@example.com");
+            String voterEmail = "rejecter" + i + "@example.com";
+            String voterToken = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), voterEmail);
             mockMvc.perform(post("/api/v1/beer-versions/" + versionId + "/votes")
                             .header("Authorization", "Bearer " + voterToken)
                             .contentType(MediaType.APPLICATION_JSON)

@@ -7,9 +7,19 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.nio.file.Paths;
 
+/**
+ * Configures Spring MVC resource handlers and route redirects to serve the API-First
+ * OpenAPI specification ({@code /openapi.yaml}) and embedded Swagger UI ({@code /swagger-ui.html}).
+ */
 @Configuration
 public class OpenApiStaticConfig implements WebMvcConfigurer {
 
+    /**
+     * Exposes {@code /openapi.yaml} from the workspace {@code api/} directory with fallback
+     * to packaged {@code classpath:/static/openapi.yaml}.
+     *
+     * @param registry Spring MVC resource handler registry
+     */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         String openApiDir = Paths.get("api").toAbsolutePath().toUri().toString();
@@ -20,6 +30,12 @@ public class OpenApiStaticConfig implements WebMvcConfigurer {
                 .addResourceLocations(openApiDir, "classpath:/static/");
     }
 
+    /**
+     * Redirects convenience entry routes ({@code /}, {@code /swagger}, {@code /docs})
+     * to the embedded Swagger UI page.
+     *
+     * @param registry Spring MVC view controller registry
+     */
     @Override
     public void addViewControllers(ViewControllerRegistry registry) {
         registry.addRedirectViewController("/", "/swagger-ui.html");

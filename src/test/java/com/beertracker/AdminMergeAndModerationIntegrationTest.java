@@ -1,5 +1,6 @@
 package com.beertracker;
 
+import com.beertracker.repository.UserRepository;
 import com.beertracker.security.JwtTokenProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +14,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
@@ -38,8 +40,11 @@ class AdminMergeAndModerationIntegrationTest {
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
+    @Autowired
+    private UserRepository userRepository;
+
     @Test
-    @DisplayName("REQ-F-010: Soft Delete by MODERATOR sets PLACEHOLDER status, hides from catalog & wishlist, and shows 'Видалений продукт' in consumption log")
+    @DisplayName("REQ-F-010: Soft Delete sets PLACEHOLDER, hides from catalog, preserves log")
     void shouldSoftDeleteBeerAndPreserveConsumptionHistoryWithPlaceholderName() throws Exception {
         String userToken = registerAndLoginUser("consumer.softdelete@example.com");
         String moderatorToken = jwtTokenProvider.generateAccessToken(
@@ -80,10 +85,14 @@ class AdminMergeAndModerationIntegrationTest {
                         .header("Authorization", "Bearer " + moderatorToken))
                 .andExpect(status().isNoContent());
 
-        // Deleted beer disappears from public catalog search
+        // Deleted beer disappears from public catalog search and direct lookup
         mockMvc.perform(get("/api/v1/beers").param("query", "Pravda Lviv Red Ale"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(0)));
+
+        mockMvc.perform(get("/api/v1/beers/" + beerId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("BEER_NOT_FOUND"));
 
         // Consumption history preserves entry & volume, displaying "Видалений продукт"
         mockMvc.perform(get("/api/v1/consumption-entries/" + entryId)
@@ -94,7 +103,7 @@ class AdminMergeAndModerationIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-011 / REQ-NF-007: Transactional Merge migrates packagings, consumption entries, deduplicates reviews, and rolls back on self-merge")
+    @DisplayName("REQ-F-011 / REQ-NF-007: Transactional Merge migrates packagings, logs, reviews")
     void shouldMergeDuplicateBeerIntoTargetAndMigrateForeignKeys() throws Exception {
         String userToken = registerAndLoginUser("consumer.merge@example.com");
         String moderatorToken = jwtTokenProvider.generateAccessToken(
@@ -102,11 +111,15 @@ class AdminMergeAndModerationIntegrationTest {
         );
 
         // Create Target Beer (500ml CAN) and Source Duplicate Beer (330ml BOTTLE)
-        String[] targetIds = createBeerWithCustomPackaging("Varvar Milk Stout", "Varvar Brew", 500, "CAN", "4820999000201");
+        String[] targetIds = createBeerWithCustomPackaging(
+                "Varvar Milk Stout", "Varvar Brew", 500, "CAN", "4820999000201"
+        );
         String targetBeerId = targetIds[0];
         String targetPkgId = targetIds[1];
 
-        String[] sourceIds = createBeerWithCustomPackaging("Varvar Milk Stout Duplicate", "Varvar Brew", 330, "BOTTLE", "4820999000202");
+        String[] sourceIds = createBeerWithCustomPackaging(
+                "Varvar Milk Stout Duplicate", "Varvar Brew", 330, "BOTTLE", "4820999000202"
+        );
         String sourceBeerId = sourceIds[0];
         String sourcePkgId = sourceIds[1];
 
@@ -139,7 +152,8 @@ class AdminMergeAndModerationIntegrationTest {
                                 """.formatted(sourceBeerId, sourcePkgId, consumedAt)))
                 .andExpect(status().isCreated())
                 .andReturn();
-        String sourceEntryId = objectMapper.readTree(sourceConsumptionRes.getResponse().getContentAsString()).get("id").asText();
+        String sourceEntryId = objectMapper.readTree(sourceConsumptionRes.getResponse().getContentAsString())
+                .get("id").asText();
 
         // User leaves an older review on targetBeer (rating 4.0) and a newer review on sourceBeer (rating 5.0)
         mockMvc.perform(post("/api/v1/beers/" + targetBeerId + "/reviews")
@@ -201,7 +215,7 @@ class AdminMergeAndModerationIntegrationTest {
                 .andExpect(jsonPath("$.beer_id").value(targetBeerId))
                 .andExpect(jsonPath("$.beer_name").value("Varvar Milk Stout"));
 
-        // Verify user's tasted collection has 1 combined entry for targetBeerId with total_volume_ml = 500 + 660 = 1160 and rating 5.0
+        // Verify user's tasted collection combines volume = 500 + 660 = 1160 and rating 5.0
         mockMvc.perform(get("/api/v1/collections/tasted")
                         .header("Authorization", "Bearer " + userToken))
                 .andExpect(status().isOk())
@@ -212,14 +226,14 @@ class AdminMergeAndModerationIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-013 & REQ-F-014: Moderator can manually verify/reject versions and process moderation queue decisions")
+    @DisplayName("REQ-F-013 & REQ-F-014: Moderator verifies/rejects versions and resolves queue")
     void shouldVerifyAndRejectVersionsAndProcessModerationQueue() throws Exception {
         String authorToken = registerAndLoginUser("author.mod@example.com");
         String moderatorToken = jwtTokenProvider.generateAccessToken(
                 UUID.randomUUID(), "moderator@beertracker.local", "MODERATOR"
         );
 
-        String[] ids = createBeerAndGetIds("Suspicious Draft Beer", "Unknown Brew", "4820999000301");
+        String[] ids = createBeerAndGetIds("Suspicious Catalog Beer", "Unknown Brew", "4820999000301");
         String beerId = ids[0];
 
         // Author creates a version draft v1
@@ -322,6 +336,11 @@ class AdminMergeAndModerationIntegrationTest {
                         .content(registerPayload))
                 .andExpect(status().isCreated());
 
+        userRepository.findByEmail(email).ifPresent(user -> {
+            user.setCreatedAt(Instant.now().minus(Duration.ofDays(30)));
+            userRepository.saveAndFlush(user);
+        });
+
         String loginPayload = """
                 {
                   "email": "%s",
@@ -367,7 +386,11 @@ class AdminMergeAndModerationIntegrationTest {
                 }
                 """.formatted(name, brewery, volumeMl, packageType, barcode);
 
+        String creatorToken = jwtTokenProvider.generateAccessToken(
+                UUID.randomUUID(), "catalog.creator@beertracker.local", "USER"
+        );
         MvcResult res = mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", "Bearer " + creatorToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(beerPayload))
                 .andExpect(status().isCreated())

@@ -16,16 +16,37 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Stateless HMAC-SHA256 JWT token issuer and validator ({@code REQ-NF-004}).
+ *
+ * <p>Access tokens carry {@code sub}, {@code email}, {@code role}, {@code iat}, and {@code exp}
+ * claims with a 15-minute TTL (900 seconds), while Refresh Tokens are opaque UUID strings
+ * backed by persistent single-use rotation records valid for 30 days.</p>
+ */
 @Component
 public class JwtTokenProvider {
 
-    public static final int ACCESS_TOKEN_TTL_SECONDS = 900; // 15 minutes (REQ-NF-004)
-    public static final long REFRESH_TOKEN_TTL_SECONDS = 30L * 24 * 60 * 60; // 30 days (REQ-NF-004)
+    /**
+     * Access Token lifetime in seconds (15 minutes per {@code REQ-NF-004}).
+     */
+    public static final int ACCESS_TOKEN_TTL_SECONDS = 900;
+
+    /**
+     * Refresh Token lifetime in seconds (30 days per {@code REQ-NF-004}).
+     */
+    public static final long REFRESH_TOKEN_TTL_SECONDS = 30L * 24 * 60 * 60;
+
     private static final String HMAC_SHA256 = "HmacSHA256";
 
     private final ObjectMapper objectMapper;
     private final byte[] secretKeyBytes;
 
+    /**
+     * Constructs the JWT provider with an injected JSON mapper and HMAC signing secret.
+     *
+     * @param objectMapper Jackson mapper used to encode/decode JWT headers and claims
+     * @param secret       HMAC-SHA256 signing secret configured via {@code security.jwt.secret}
+     */
     public JwtTokenProvider(
             ObjectMapper objectMapper,
             @Value("${security.jwt.secret:beer-tracker-default-hmac-sha256-secret-key-2026-sdd-tdd}") String secret
@@ -34,6 +55,14 @@ public class JwtTokenProvider {
         this.secretKeyBytes = secret.getBytes(StandardCharsets.UTF_8);
     }
 
+    /**
+     * Generates a signed HS256 JWT Access Token for the given user identity and role.
+     *
+     * @param userId user UUID stored in the {@code sub} claim
+     * @param email  user email stored in the {@code email} claim
+     * @param role   RBAC role ({@code USER} or {@code MODERATOR})
+     * @return compact Base64URL-encoded JWT string
+     */
     public String generateAccessToken(UUID userId, String email, String role) {
         long iat = Instant.now().getEpochSecond();
         long exp = iat + ACCESS_TOKEN_TTL_SECONDS;
@@ -60,10 +89,21 @@ public class JwtTokenProvider {
         }
     }
 
+    /**
+     * Generates an opaque random UUID value for single-use Refresh Token issuance.
+     *
+     * @return random UUID string
+     */
     public String generateRefreshTokenValue() {
         return UUID.randomUUID().toString();
     }
 
+    /**
+     * Verifies the HS256 signature and expiration timestamp of a JWT Access Token.
+     *
+     * @param token raw compact JWT string
+     * @return parsed claims {@link JsonNode} if valid and unexpired, or empty otherwise
+     */
     public Optional<JsonNode> validateAndParseToken(String token) {
         if (token == null || token.isBlank()) {
             return Optional.empty();

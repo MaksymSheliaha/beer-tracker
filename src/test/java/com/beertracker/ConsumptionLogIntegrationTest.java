@@ -36,9 +36,11 @@ class ConsumptionLogIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @Test
-    @DisplayName("BDD-SCN-001 / REQ-F-006 / AC-006.1: POST /api/v1/consumption-entries calculates total_volume_ml = 1000 and returns 201 Created")
-    void shouldRecordConsumptionEntryAndCalculateTotalVolume_BddScn001() throws Exception {
+    private String userAuthHeader(UUID userId, String email) {
+        return "Bearer " + JwtTestTokenProvider.createUserToken(userId, email);
+    }
+
+    private String[] createSampleBeer(String authHeader) throws Exception {
         String createBeerPayload = """
                 {
                   "name": "Mova Dark Stout",
@@ -57,14 +59,26 @@ class ConsumptionLogIntegrationTest {
                 """;
 
         MvcResult beerResult = mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createBeerPayload))
                 .andExpect(status().isCreated())
                 .andReturn();
 
         JsonNode beerJson = objectMapper.readTree(beerResult.getResponse().getContentAsString());
-        String beerId = beerJson.get("id").asText();
-        String packagingId = beerJson.get("packagings").get(0).get("id").asText();
+        return new String[]{
+                beerJson.get("id").asText(),
+                beerJson.get("packagings").get(0).get("id").asText()
+        };
+    }
+
+    @Test
+    @DisplayName("BDD-SCN-001 / REQ-F-006 / AC-006.1: Record consumption calculates total_volume_ml")
+    void shouldRecordConsumptionEntryAndCalculateTotalVolumeBddScn001() throws Exception {
+        String authHeader = userAuthHeader(UUID.randomUUID(), "consumer@example.com");
+        String[] ids = createSampleBeer(authHeader);
+        String beerId = ids[0];
+        String packagingId = ids[1];
         String consumedAt = Instant.now().minus(Duration.ofHours(2)).toString();
 
         String consumptionPayload = """
@@ -77,6 +91,7 @@ class ConsumptionLogIntegrationTest {
                 """.formatted(beerId, packagingId, consumedAt);
 
         mockMvc.perform(post("/api/v1/consumption-entries")
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(consumptionPayload))
                 .andExpect(status().isCreated())
@@ -92,6 +107,7 @@ class ConsumptionLogIntegrationTest {
                 .andExpect(jsonPath("$.wishlist_autoremoved").isBoolean());
 
         mockMvc.perform(get("/api/v1/consumption-entries")
+                        .header("Authorization", authHeader)
                         .param("page", "0")
                         .param("size", "20"))
                 .andExpect(status().isOk())
@@ -101,8 +117,63 @@ class ConsumptionLogIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-006 / AC-006.2: POST /api/v1/consumption-entries with future consumed_at returns 422 Unprocessable Entity")
+    @DisplayName("REQ-NF-004: Unauthenticated consumption GET/POST requests return 401 UNAUTHORIZED")
+    void shouldReturn401WhenAccessingConsumptionEndpointsWithoutToken() throws Exception {
+        mockMvc.perform(get("/api/v1/consumption-entries"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(get("/api/v1/consumption-entries/" + UUID.randomUUID()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(post("/api/v1/consumption-entries")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("REQ-NF-005 / AC-NF-005.1: Accessing another user's entry returns 404 Not Found")
+    void shouldIsolateConsumptionEntriesBetweenUsersWith404() throws Exception {
+        String ownerHeader = userAuthHeader(UUID.randomUUID(), "owner@example.com");
+        String otherUserHeader = userAuthHeader(UUID.randomUUID(), "intruder@example.com");
+        String[] ids = createSampleBeer(ownerHeader);
+
+        String consumptionPayload = """
+                {
+                  "beer_id": "%s",
+                  "packaging_id": "%s",
+                  "quantity": 1,
+                  "consumed_at": "%s"
+                }
+                """.formatted(ids[0], ids[1], Instant.now().minus(Duration.ofHours(1)).toString());
+
+        MvcResult created = mockMvc.perform(post("/api/v1/consumption-entries")
+                        .header("Authorization", ownerHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(consumptionPayload))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String entryId = objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText();
+
+        mockMvc.perform(get("/api/v1/consumption-entries")
+                        .header("Authorization", otherUserHeader))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total_elements").value(0));
+
+        mockMvc.perform(get("/api/v1/consumption-entries/" + entryId)
+                        .header("Authorization", otherUserHeader))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CONSUMPTION_ENTRY_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("REQ-F-006 / AC-006.2: Future consumed_at returns 422 CONSUMPTION_TIME_IN_FUTURE")
     void shouldReturn422WhenConsumedAtIsInFuture() throws Exception {
+        String authHeader = userAuthHeader(UUID.randomUUID(), "consumer@example.com");
         String futureTime = Instant.now().plus(Duration.ofDays(1)).toString();
         String payload = """
                 {
@@ -114,6 +185,7 @@ class ConsumptionLogIntegrationTest {
                 """.formatted(UUID.randomUUID(), UUID.randomUUID(), futureTime);
 
         mockMvc.perform(post("/api/v1/consumption-entries")
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isUnprocessableEntity())
@@ -123,8 +195,58 @@ class ConsumptionLogIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-006 / AC-006.4: POST /api/v1/consumption-entries with quantity < 1 or > 100 returns 422 Unprocessable Entity")
+    @DisplayName("REQ-F-006 / AC-006.3: consumed_at prior to User.created_at returns 422")
+    void shouldReturn422WhenConsumedAtPrecedesUserRegistration() throws Exception {
+        String registerPayload = """
+                {
+                  "email": "new.member@example.com",
+                  "password": "StrongPassword123!",
+                  "timezone": "Europe/Kyiv"
+                }
+                """;
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registerPayload))
+                .andExpect(status().isCreated());
+
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "new.member@example.com",
+                                  "password": "StrongPassword123!"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        String token = objectMapper.readTree(loginResult.getResponse().getContentAsString())
+                .get("access_token").asText();
+        String authHeader = "Bearer " + token;
+
+        String[] ids = createSampleBeer(authHeader);
+        String beforeRegistration = Instant.now().minus(Duration.ofHours(2)).toString();
+        String payload = """
+                {
+                  "beer_id": "%s",
+                  "packaging_id": "%s",
+                  "quantity": 1,
+                  "consumed_at": "%s"
+                }
+                """.formatted(ids[0], ids[1], beforeRegistration);
+
+        mockMvc.perform(post("/api/v1/consumption-entries")
+                        .header("Authorization", authHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("CONSUMPTION_TIME_BEFORE_REGISTRATION"))
+                .andExpect(jsonPath("$.details[0].field").value("consumed_at"));
+    }
+
+    @Test
+    @DisplayName("REQ-F-006 / AC-006.4: Quantity < 1 or > 100 returns 422 INVALID_QUANTITY")
     void shouldReturn422WhenQuantityIsOutOfBounds() throws Exception {
+        String authHeader = userAuthHeader(UUID.randomUUID(), "consumer@example.com");
         String consumedAt = Instant.now().minus(Duration.ofHours(1)).toString();
         String payload = """
                 {
@@ -136,6 +258,7 @@ class ConsumptionLogIntegrationTest {
                 """.formatted(UUID.randomUUID(), UUID.randomUUID(), consumedAt);
 
         mockMvc.perform(post("/api/v1/consumption-entries")
+                        .header("Authorization", authHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isUnprocessableEntity())
@@ -145,8 +268,8 @@ class ConsumptionLogIntegrationTest {
     }
 
     @Test
-    @DisplayName("BDD-SCN-005 / REQ-F-007 / AC-007.1: PUT, PATCH, DELETE on /api/v1/consumption-entries/{id} return 405 Method Not Allowed")
-    void shouldRejectPutPatchAndDeleteOnConsumptionEntriesWith405_BddScn005() throws Exception {
+    @DisplayName("BDD-SCN-005 / REQ-F-007 / AC-007.1: PUT/PATCH/DELETE return 405 Method Not Allowed")
+    void shouldRejectPutPatchAndDeleteOnConsumptionEntriesWith405BddScn005() throws Exception {
         String entryId = "c0a80123-0001-4444-9999-0123456789ab";
 
         mockMvc.perform(put("/api/v1/consumption-entries/" + entryId)

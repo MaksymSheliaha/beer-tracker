@@ -4,22 +4,22 @@ import com.beertracker.dto.BeerCreateRequest;
 import com.beertracker.dto.BeerPackagingCreateRequest;
 import com.beertracker.dto.BeerPagedResponse;
 import com.beertracker.dto.BeerResponse;
-import com.beertracker.dto.BeerVersionCreateRequest;
 import com.beertracker.dto.ErrorDetail;
 import com.beertracker.exception.ApiException;
 import com.beertracker.mapper.BeerMapper;
 import com.beertracker.model.Beer;
-import com.beertracker.model.BeerPackaging;
 import com.beertracker.model.BeerVersion;
 import com.beertracker.repository.BeerRepository;
 import com.beertracker.repository.BeerVersionRepository;
 import com.beertracker.validation.DomainValidationPredicates;
+import com.beertracker.validation.PaginationHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -29,15 +29,27 @@ import java.util.UUID;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
+/**
+ * Service managing canonical {@link Beer} catalog registration, preventive deduplication,
+ * ABV-range filtering, and draft-aware product retrieval
+ * ({@code REQ-F-001}, {@code REQ-F-002}, {@code REQ-F-003}, {@code REQ-F-015}).
+ */
 @Service
 public class BeerService {
 
-    private static final Logger log = LoggerFactory.getLogger(BeerService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(BeerService.class);
 
     private final BeerRepository beerRepository;
     private final BeerVersionRepository beerVersionRepository;
     private final BeerMapper beerMapper;
 
+    /**
+     * Constructs the catalog service.
+     *
+     * @param beerRepository        repository storing catalog beers
+     * @param beerVersionRepository repository storing proposed version drafts
+     * @param beerMapper            mapper between beer entities and DTOs
+     */
     public BeerService(
             BeerRepository beerRepository,
             BeerVersionRepository beerVersionRepository,
@@ -48,11 +60,19 @@ public class BeerService {
         this.beerMapper = beerMapper;
     }
 
+    /**
+     * Retrieves an active catalog beer by UUID, returning the latest unverified draft overlay
+     * unless {@code verifiedOnly} is {@code true} ({@code AC-003.3}).
+     *
+     * @param id           beer UUID
+     * @param verifiedOnly when {@code true}, returns only the base catalog state without pending draft overlay
+     * @return {@link BeerResponse} for the requested beer
+     * @throws ApiException with {@code 404 NOT_FOUND} ({@code BEER_NOT_FOUND}) if missing,
+     *                      soft-deleted, or merged
+     */
+    @Transactional(readOnly = true)
     public BeerResponse getBeerById(UUID id, boolean verifiedOnly) {
-        Beer beer = beerRepository.findById(id)
-                .filter(b -> !"PLACEHOLDER".equals(b.status())
-                        && !"DELETED".equals(b.status())
-                        && !"MERGED".equals(b.status()))
+        Beer beer = beerRepository.findActiveById(id)
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.NOT_FOUND,
                         "BEER_NOT_FOUND",
@@ -63,28 +83,10 @@ public class BeerService {
         if (!verifiedOnly) {
             Optional<BeerVersion> draftOpt = beerVersionRepository.findActiveUnverifiedByBeerId(id);
             if (draftOpt.isPresent() && draftOpt.get().payload() != null) {
-                BeerVersionCreateRequest p = draftOpt.get().payload();
-                List<BeerPackaging> combinedPackagings = new ArrayList<>(beer.packagings());
-                if (p.packagings() != null) {
-                    for (BeerPackagingCreateRequest pkgReq : p.packagings()) {
-                        combinedPackagings.add(beerMapper.toPackagingEntity(beer.id(), pkgReq));
-                    }
-                }
-                Beer effectiveBeer = new Beer(
-                        beer.id(),
-                        p.name() != null ? p.name().trim() : beer.name(),
-                        p.brewery() != null ? p.brewery().trim() : beer.brewery(),
-                        p.style() != null ? p.style().trim() : beer.style(),
-                        p.abv() != null ? p.abv() : beer.abv(),
-                        p.beerType() != null ? p.beerType() : beer.beerType(),
-                        p.description() != null ? p.description() : beer.description(),
-                        p.country() != null ? p.country() : beer.country(),
-                        p.imageUrl() != null ? p.imageUrl() : beer.imageUrl(),
-                        beer.status(),
-                        beer.ratingAvg(),
-                        beer.reviewsCount(),
-                        List.copyOf(combinedPackagings),
-                        beer.createdAt()
+                Beer effectiveBeer = beerMapper.mergeWithVersionPayload(
+                        beer,
+                        draftOpt.get().payload(),
+                        beer.status()
                 );
                 return beerMapper.toResponse(effectiveBeer);
             }
@@ -93,13 +95,24 @@ public class BeerService {
         return beerMapper.toResponse(beer);
     }
 
+    /**
+     * Validates domain invariants and preventive uniqueness rules, then registers a new
+     * {@code UNVERIFIED} beer product with its packagings ({@code AC-001.1}..{@code AC-002.2}).
+     *
+     * @param request beer creation payload
+     * @return persisted {@link BeerResponse}
+     * @throws ApiException with {@code 400 BAD_REQUEST} for missing text fields,
+     *                      {@code 409 CONFLICT} for duplicate {@code (brewery, name)} or barcode,
+     *                      or {@code 422 UNPROCESSABLE_ENTITY} for packaging/ABV/type rule violations
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public BeerResponse createBeer(BeerCreateRequest request) {
         validateCreateRequest(request);
 
         Beer beer = beerMapper.toEntity(request);
         beerRepository.save(beer);
 
-        log.info("Beer registered in catalog",
+        LOG.info("Beer registered in catalog",
                 kv("event", "beer_created"),
                 kv("beer_id", beer.id().toString()),
                 kv("name", beer.name()),
@@ -110,13 +123,35 @@ public class BeerService {
         return beerMapper.toResponse(beer);
     }
 
+    /**
+     * Searches visible catalog beers without ABV bounds filtering.
+     *
+     * @param query optional substring matched against name or brewery
+     * @param page  zero-based page index
+     * @param size  page size (1..100)
+     * @return paginated {@link BeerPagedResponse}
+     */
+    @Transactional(readOnly = true)
     public BeerPagedResponse listBeers(String query, int page, int size) {
         return listBeers(query, null, null, page, size);
     }
 
+    /**
+     * Searches and filters visible catalog beers by text query and inclusive ABV range
+     * ({@code REQ-F-001}, {@code REQ-F-015}).
+     *
+     * @param query  optional case-insensitive search substring against name or brewery
+     * @param minAbv optional inclusive minimum ABV percentage in {@code [0.0, 100.0]}
+     * @param maxAbv optional inclusive maximum ABV percentage in {@code [0.0, 100.0]}
+     * @param page   zero-based page index
+     * @param size   page size (1..100)
+     * @return paginated {@link BeerPagedResponse}
+     * @throws ApiException with {@code 400 BAD_REQUEST} for invalid pagination or {@code INVALID_ABV_RANGE}
+     */
+    @Transactional(readOnly = true)
     public BeerPagedResponse listBeers(String query, Double minAbv, Double maxAbv, int page, int size) {
         long startNs = System.nanoTime();
-        validatePagination(page, size);
+        PaginationHelper.validate(page, size);
         validateAbvRange(minAbv, maxAbv);
 
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
@@ -130,7 +165,7 @@ public class BeerService {
         BeerPagedResponse pagedResponse = beerMapper.toPagedResponse(filtered, page, size);
 
         double durationMs = (System.nanoTime() - startNs) / 1_000_000.0;
-        log.info("Catalog search executed",
+        LOG.info("Catalog search executed",
                 kv("event", "catalog_search"),
                 kv("query", query),
                 kv("min_abv", minAbv),
@@ -169,25 +204,6 @@ public class BeerService {
         }
     }
 
-    private void validatePagination(int page, int size) {
-        if (!DomainValidationPredicates.IS_VALID_PAGE_INDEX.test(page)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "BAD_REQUEST",
-                    "Parameter 'page' must not be negative",
-                    List.of(new ErrorDetail("page", "Must be greater than or equal to 0"))
-            );
-        }
-        if (!DomainValidationPredicates.IS_VALID_PAGE_SIZE.test(size)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_PAGE_SIZE",
-                    "Parameter 'size' exceeds maximum allowed limit of 100",
-                    List.of(new ErrorDetail("size", "Must be between 1 and 100"))
-            );
-        }
-    }
-
     private void validateCreateRequest(BeerCreateRequest request) {
         requireNonBlank(request != null ? request.name() : null, "name");
         requireNonBlank(request.brewery(), "brewery");
@@ -220,11 +236,14 @@ public class BeerService {
 
         Optional<Beer> duplicateByName = beerRepository.findByBreweryAndName(request.brewery(), request.name());
         if (duplicateByName.isPresent()) {
+            String message = "Beer with name '%s' and brewery '%s' already exists"
+                    .formatted(request.name().trim(), request.brewery().trim());
+            String issue = "A product with the same name and brewery already exists in the catalog";
             throw new ApiException(
                     HttpStatus.CONFLICT,
                     "DUPLICATE_BEER_NAME_CONFLICT",
-                    "Beer with name '%s' and brewery '%s' already exists".formatted(request.name().trim(), request.brewery().trim()),
-                    List.of(new ErrorDetail("name", "A product with the same name and brewery already exists in the catalog"))
+                    message,
+                    List.of(new ErrorDetail("name", issue))
             );
         }
 
@@ -252,20 +271,22 @@ public class BeerService {
         }
 
         if (DomainValidationPredicates.IS_DRAFT_PACKAGE_INCOMPATIBLE.test(request.beerType(), pkg.packageType())) {
+            String issue = "Found '%s' for beer_type 'DRAFT'".formatted(pkg.packageType());
             throw new ApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "INVALID_PACKAGE_TYPE_FOR_DRAFT",
                     "All packagings for DRAFT beer must have package_type DRAFT",
-                    List.of(new ErrorDetail(fieldPrefix + ".package_type", "Found '%s' for beer_type 'DRAFT'".formatted(pkg.packageType())))
+                    List.of(new ErrorDetail(fieldPrefix + ".package_type", issue))
             );
         }
 
         if (DomainValidationPredicates.IS_PACKAGED_DRAFT_INCOMPATIBLE.test(request.beerType(), pkg.packageType())) {
+            String issue = "package_type DRAFT is not allowed for PACKAGED beer";
             throw new ApiException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "UNPROCESSABLE_ENTITY",
                     "PACKAGED beer cannot have package_type DRAFT",
-                    List.of(new ErrorDetail(fieldPrefix + ".package_type", "package_type DRAFT is not allowed for PACKAGED beer"))
+                    List.of(new ErrorDetail(fieldPrefix + ".package_type", issue))
             );
         }
 
@@ -282,11 +303,12 @@ public class BeerService {
             Optional<Beer> existingByBarcode = beerRepository.findByBarcode(barcode);
             if (existingByBarcode.isPresent() || !requestBarcodes.add(barcode)) {
                 String assignedTo = existingByBarcode.map(Beer::name).orElse(request.name());
+                String issue = "Barcode " + barcode + " is already assigned to " + assignedTo;
                 throw new ApiException(
                         HttpStatus.CONFLICT,
                         "DUPLICATE_BARCODE_CONFLICT",
                         "Штрих-код " + barcode + " уже прив'язаний до іншого товару",
-                        List.of(new ErrorDetail(fieldPrefix + ".barcode", "Barcode " + barcode + " is already assigned to " + assignedTo))
+                        List.of(new ErrorDetail(fieldPrefix + ".barcode", issue))
                 );
             }
         }

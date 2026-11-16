@@ -34,7 +34,7 @@ class AuthIntegrationTest {
     private ObjectMapper objectMapper;
 
     @Test
-    @DisplayName("REQ-NF-004 / REQ-NF-006: POST /api/v1/auth/register creates USER with 201 and never leaks password_hash in UserResponse")
+    @DisplayName("REQ-NF-004 / REQ-NF-006: Register creates USER with 201 and omits password_hash")
     void shouldRegisterUserWith201AndNeverLeakPasswordHash() throws Exception {
         String registerPayload = """
                 {
@@ -64,7 +64,7 @@ class AuthIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-NF-004: POST /api/v1/auth/register with duplicate email returns 409 Conflict (EMAIL_ALREADY_EXISTS)")
+    @DisplayName("REQ-NF-004: Register with duplicate email returns 409 EMAIL_ALREADY_EXISTS")
     void shouldReturn409WhenEmailAlreadyExists() throws Exception {
         String registerPayload = """
                 {
@@ -89,7 +89,7 @@ class AuthIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-NF-004 / REQ-NF-008: POST /api/v1/auth/register with invalid IANA timezone or short password returns 422 Unprocessable Entity")
+    @DisplayName("REQ-NF-004 / REQ-NF-008: Register with invalid timezone or short password returns 422")
     void shouldReturn422OnInvalidTimezoneOrShortPassword() throws Exception {
         String invalidPayload = """
                 {
@@ -109,8 +109,8 @@ class AuthIntegrationTest {
     }
 
     @Test
-    @DisplayName("API-POS-012 / REQ-NF-004 / REQ-NF-006: POST /api/v1/auth/login validates password with BCrypt (cost >= 12) and returns 200 TokenResponse")
-    void shouldAuthenticateWithBCryptAndGenerateAccessAndRefreshTokens_ApiPos012() throws Exception {
+    @DisplayName("API-POS-012 / REQ-NF-004 / REQ-NF-006: Login validates BCrypt(12) and returns TokenResponse")
+    void shouldAuthenticateWithBCryptAndGenerateAccessAndRefreshTokensApiPos012() throws Exception {
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(12);
         String sampleHash = encoder.encode("SuperSecretPassword123!");
         assertThat(sampleHash).matches("^\\$2[aby]\\$12\\$.+");
@@ -163,8 +163,8 @@ class AuthIntegrationTest {
     }
 
     @Test
-    @DisplayName("API-NEG-005 / REQ-NF-004 / REQ-NF-006: POST /api/v1/auth/login with wrong password returns 401 Unauthorized (INVALID_CREDENTIALS)")
-    void shouldReturn401OnInvalidCredentials_ApiNeg005() throws Exception {
+    @DisplayName("API-NEG-005 / REQ-NF-004 / REQ-NF-006: Login with wrong password returns 401 INVALID_CREDENTIALS")
+    void shouldReturn401OnInvalidCredentialsApiNeg005() throws Exception {
         String registerPayload = """
                 {
                   "email": "user@example.com",
@@ -195,7 +195,7 @@ class AuthIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-NF-004: POST /api/v1/auth/refresh rotates refresh_token once (200) and rejects reused token with 401 (INVALID_REFRESH_TOKEN)")
+    @DisplayName("REQ-NF-004: Refresh rotates refresh_token once (200) and rejects reused token (401)")
     void shouldRotateRefreshTokenAndRejectReusedTokenWith401() throws Exception {
         String registerPayload = """
                 {

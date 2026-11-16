@@ -1,12 +1,9 @@
 package com.beertracker.controller;
 
-import com.beertracker.dto.ErrorDetail;
 import com.beertracker.dto.WishlistItemResponse;
 import com.beertracker.dto.WishlistPagedResponse;
-import com.beertracker.exception.ApiException;
-import com.beertracker.security.JwtTokenProvider;
+import com.beertracker.security.JwtRequestAuthenticator;
 import com.beertracker.service.WishlistService;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,41 +17,66 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
-import java.util.List;
 import java.util.UUID;
 
+/**
+ * REST controller managing the authenticated user's personal {@code Wishlist} under
+ * {@code /api/v1/wishlist-items} ({@code REQ-F-009}, {@code REQ-NF-005}).
+ */
 @RestController
 @RequestMapping("/api/v1/wishlist-items")
 public class WishlistController {
 
     private final WishlistService wishlistService;
-    private final JwtTokenProvider jwtTokenProvider;
+    private final JwtRequestAuthenticator jwtRequestAuthenticator;
 
-    public WishlistController(WishlistService wishlistService, JwtTokenProvider jwtTokenProvider) {
+    /**
+     * Constructs the wishlist controller.
+     *
+     * @param wishlistService         service managing personal wishlist items
+     * @param jwtRequestAuthenticator Bearer JWT extractor and verifier
+     */
+    public WishlistController(
+            WishlistService wishlistService,
+            JwtRequestAuthenticator jwtRequestAuthenticator
+    ) {
         this.wishlistService = wishlistService;
-        this.jwtTokenProvider = jwtTokenProvider;
+        this.jwtRequestAuthenticator = jwtRequestAuthenticator;
     }
 
+    /**
+     * Lists paginated beers saved in the authenticated user's wishlist.
+     *
+     * @param authHeader HTTP {@code Authorization} header carrying a valid Bearer token
+     * @param page       zero-based page index
+     * @param size       number of items per page (1..100)
+     * @return {@code 200 OK} with {@link WishlistPagedResponse}
+     */
     @GetMapping
     public ResponseEntity<WishlistPagedResponse> listWishlist(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "20") int size
     ) {
-        UUID userId = extractAuthenticatedUserId(authHeader);
-        MDC.put("user_id", userId.toString());
+        UUID userId = jwtRequestAuthenticator.requireUserId(authHeader);
         MDC.put("status", "200");
 
         return ResponseEntity.status(HttpStatus.OK).body(wishlistService.listWishlist(userId, page, size));
     }
 
+    /**
+     * Adds an active catalog beer to the authenticated user's wishlist.
+     *
+     * @param beerId     UUID of the target beer product
+     * @param authHeader HTTP {@code Authorization} header carrying a valid Bearer token
+     * @return {@code 201 Created} with {@link WishlistItemResponse}
+     */
     @PostMapping("/{beer_id}")
     public ResponseEntity<WishlistItemResponse> addWishlistItem(
             @PathVariable("beer_id") UUID beerId,
             @RequestHeader(value = "Authorization", required = false) String authHeader
     ) {
-        UUID userId = extractAuthenticatedUserId(authHeader);
-        MDC.put("user_id", userId.toString());
+        UUID userId = jwtRequestAuthenticator.requireUserId(authHeader);
         MDC.put("status", "201");
 
         WishlistItemResponse created = wishlistService.addToWishlist(userId, beerId);
@@ -63,45 +85,22 @@ public class WishlistController {
                 .body(created);
     }
 
+    /**
+     * Removes a beer from the authenticated user's wishlist.
+     *
+     * @param beerId     UUID of the beer to remove
+     * @param authHeader HTTP {@code Authorization} header carrying a valid Bearer token
+     * @return {@code 204 No Content} on removal, or {@code 404 Not Found} if absent
+     */
     @DeleteMapping("/{beer_id}")
     public ResponseEntity<Void> removeWishlistItem(
             @PathVariable("beer_id") UUID beerId,
             @RequestHeader(value = "Authorization", required = false) String authHeader
     ) {
-        UUID userId = extractAuthenticatedUserId(authHeader);
-        MDC.put("user_id", userId.toString());
+        UUID userId = jwtRequestAuthenticator.requireUserId(authHeader);
         MDC.put("status", "204");
 
         wishlistService.removeFromWishlist(userId, beerId);
         return ResponseEntity.noContent().build();
-    }
-
-    private UUID extractAuthenticatedUserId(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            throw new ApiException(
-                    HttpStatus.UNAUTHORIZED,
-                    "UNAUTHORIZED",
-                    "Full authentication is required to access this resource",
-                    List.of(new ErrorDetail("Authorization", "Missing or invalid Bearer JWT token"))
-            );
-        }
-        String token = authHeader.substring("Bearer ".length()).trim();
-        JsonNode claims = jwtTokenProvider.validateAndParseToken(token)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.UNAUTHORIZED,
-                        "UNAUTHORIZED",
-                        "Full authentication is required to access this resource",
-                        List.of(new ErrorDetail("Authorization", "Missing or invalid Bearer JWT token"))
-                ));
-        try {
-            return UUID.fromString(claims.path("sub").asText());
-        } catch (Exception e) {
-            throw new ApiException(
-                    HttpStatus.UNAUTHORIZED,
-                    "UNAUTHORIZED",
-                    "Invalid subject in JWT token",
-                    List.of(new ErrorDetail("Authorization", "Invalid user identifier in token"))
-            );
-        }
     }
 }

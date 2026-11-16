@@ -4,6 +4,15 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
+/**
+ * Paginated container returning {@link WishlistItemResponse} entries for the authenticated owner.
+ *
+ * @param items         page items
+ * @param page          zero-based page index
+ * @param size          requested page size
+ * @param totalElements total wishlist items
+ * @param totalPages    total available pages
+ */
 public record WishlistPagedResponse(
         @JsonProperty("items") List<WishlistItemResponse> items,
         @JsonProperty("page") int page,

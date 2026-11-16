@@ -1,9 +1,7 @@
 package com.beertracker.service;
 
-import com.beertracker.dto.BeerPackagingCreateRequest;
 import com.beertracker.dto.BeerPagedResponse;
 import com.beertracker.dto.BeerResponse;
-import com.beertracker.dto.BeerVersionCreateRequest;
 import com.beertracker.dto.BeerVersionRejectRequest;
 import com.beertracker.dto.BeerVersionResponse;
 import com.beertracker.dto.ErrorDetail;
@@ -13,30 +11,34 @@ import com.beertracker.exception.ApiException;
 import com.beertracker.mapper.BeerMapper;
 import com.beertracker.mapper.BeerVersionMapper;
 import com.beertracker.model.Beer;
-import com.beertracker.model.BeerPackaging;
 import com.beertracker.model.BeerVersion;
 import com.beertracker.repository.BeerRepository;
 import com.beertracker.repository.BeerVersionRepository;
 import com.beertracker.repository.ConsumptionRepository;
 import com.beertracker.repository.WishlistRepository;
-import com.beertracker.validation.DomainValidationPredicates;
+import com.beertracker.validation.PaginationHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
+/**
+ * Service handling moderator catalog soft deletion ({@code Placeholder Beer}), manual
+ * {@link BeerVersion} approval/rejection, and moderation queue resolution
+ * ({@code REQ-F-010}, {@code REQ-F-013}, {@code REQ-F-014}).
+ */
 @Service
 public class ModerationService {
 
-    private static final Logger log = LoggerFactory.getLogger(ModerationService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ModerationService.class);
     private static final String PLACEHOLDER_BEER_NAME = "Видалений продукт";
     private static final Set<String> ALLOWED_MODERATION_DECISIONS = Set.of("APPROVE", "PERMANENT_DELETE");
 
@@ -46,14 +48,27 @@ public class ModerationService {
     private final WishlistRepository wishlistRepository;
     private final BeerMapper beerMapper;
     private final BeerVersionMapper beerVersionMapper;
+    private final ReadCommittedTxExecutor txExecutor;
 
+    /**
+     * Constructs the moderation service.
+     *
+     * @param beerRepository        repository storing catalog beers
+     * @param beerVersionRepository repository storing proposed versions and locks
+     * @param consumptionRepository repository updating historical placeholder display names
+     * @param wishlistRepository    repository cleaning up deleted product references
+     * @param beerMapper            mapper applying verified payloads and paginating catalog entries
+     * @param beerVersionMapper     mapper converting {@link BeerVersion} responses
+     * @param txExecutor            ACID {@code READ_COMMITTED} transaction executor
+     */
     public ModerationService(
             BeerRepository beerRepository,
             BeerVersionRepository beerVersionRepository,
             ConsumptionRepository consumptionRepository,
             WishlistRepository wishlistRepository,
             BeerMapper beerMapper,
-            BeerVersionMapper beerVersionMapper
+            BeerVersionMapper beerVersionMapper,
+            ReadCommittedTxExecutor txExecutor
     ) {
         this.beerRepository = beerRepository;
         this.beerVersionRepository = beerVersionRepository;
@@ -61,152 +76,193 @@ public class ModerationService {
         this.wishlistRepository = wishlistRepository;
         this.beerMapper = beerMapper;
         this.beerVersionMapper = beerVersionMapper;
+        this.txExecutor = txExecutor;
     }
 
+    /**
+     * Marks an active catalog beer as {@code PLACEHOLDER}, clears wishlist references, and updates
+     * historical consumption labels to {@code "Видалений продукт"} without deleting logs
+     * ({@code AC-010.1}, {@code AC-010.2}).
+     *
+     * @param beerId UUID of the catalog beer to soft-delete
+     * @throws ApiException with {@code 404 NOT_FOUND} if the beer does not exist or is already inactive
+     */
     public synchronized void softDeleteBeer(UUID beerId) {
-        Beer beer = beerRepository.findById(beerId)
-                .filter(b -> !"PLACEHOLDER".equals(b.status()) && !"DELETED".equals(b.status()))
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "NOT_FOUND",
-                        "Resource requested at /beers/" + beerId + " was not found",
-                        List.of(new ErrorDetail("id", "Requested resource with the specified identifier was not found"))
-                ));
+        txExecutor.executeVoid(() -> {
+            Beer beer = beerRepository.findActiveById(beerId)
+                    .orElseThrow(() -> {
+                        String issue = "Requested resource with the specified identifier was not found";
+                        return new ApiException(
+                                HttpStatus.NOT_FOUND,
+                                "NOT_FOUND",
+                                "Resource requested at /beers/" + beerId + " was not found",
+                                List.of(new ErrorDetail("id", issue))
+                        );
+                    });
 
-        Beer placeholderBeer = new Beer(
-                beer.id(),
-                PLACEHOLDER_BEER_NAME,
-                beer.brewery(),
-                beer.style(),
-                beer.abv(),
-                beer.beerType(),
-                beer.description(),
-                beer.country(),
-                beer.imageUrl(),
-                "PLACEHOLDER",
-                beer.ratingAvg(),
-                beer.reviewsCount(),
-                beer.packagings(),
-                beer.createdAt()
-        );
-        beerRepository.save(placeholderBeer);
-        wishlistRepository.removeAllByBeer(beerId);
-        consumptionRepository.updateBeerNameForBeerId(beerId, PLACEHOLDER_BEER_NAME);
+            Beer placeholderBeer = new Beer(
+                    beer.id(),
+                    PLACEHOLDER_BEER_NAME,
+                    beer.brewery(),
+                    beer.style(),
+                    beer.abv(),
+                    beer.beerType(),
+                    beer.description(),
+                    beer.country(),
+                    beer.imageUrl(),
+                    "PLACEHOLDER",
+                    beer.ratingAvg(),
+                    beer.reviewsCount(),
+                    beer.packagings(),
+                    beer.createdAt()
+            );
+            beerRepository.save(placeholderBeer);
+            wishlistRepository.removeAllByBeer(beerId);
+            consumptionRepository.updateBeerNameForBeerId(beerId, PLACEHOLDER_BEER_NAME);
 
-        log.info("Beer soft-deleted to PLACEHOLDER by moderator",
-                kv("event", "beer_soft_deleted"),
-                kv("beer_id", beerId.toString()),
-                kv("new_status", "PLACEHOLDER"),
-                kv("status", "204"));
+            LOG.info("Beer soft-deleted to PLACEHOLDER by moderator",
+                    kv("event", "beer_soft_deleted"),
+                    kv("beer_id", beerId.toString()),
+                    kv("new_status", "PLACEHOLDER"),
+                    kv("status", "204"));
+        });
     }
 
+    /**
+     * Immediately promotes a {@link BeerVersion} draft to {@code VERIFIED} and applies its
+     * attributes to the canonical catalog entry ({@code AC-013.1}).
+     *
+     * @param versionId version draft UUID
+     * @return updated {@link BeerVersionResponse}
+     * @throws ApiException with {@code 404 NOT_FOUND} if the version does not exist
+     */
     public synchronized BeerVersionResponse verifyBeerVersionByModerator(UUID versionId) {
         synchronized (beerVersionRepository.getLockForVersion(versionId)) {
-            BeerVersion version = beerVersionRepository.findById(versionId)
-                    .orElseThrow(() -> new ApiException(
-                            HttpStatus.NOT_FOUND,
-                            "NOT_FOUND",
-                            "Resource requested at /beer-versions/" + versionId + "/verify was not found",
-                            List.of(new ErrorDetail("id", "Requested resource with the specified identifier was not found"))
-                    ));
+            return txExecutor.execute(() -> {
+                BeerVersion version = beerVersionRepository.findById(versionId)
+                        .orElseThrow(() -> {
+                            String issue = "Requested resource with the specified identifier was not found";
+                            return new ApiException(
+                                    HttpStatus.NOT_FOUND,
+                                    "NOT_FOUND",
+                                    "Resource requested at /beer-versions/" + versionId + "/verify was not found",
+                                    List.of(new ErrorDetail("id", issue))
+                            );
+                        });
 
-            BeerVersion verifiedVersion = new BeerVersion(
-                    version.id(),
-                    version.beerId(),
-                    version.authorId(),
-                    version.payload(),
-                    version.confirmVotes(),
-                    version.rejectVotes(),
-                    "VERIFIED",
-                    version.createdAt()
-            );
-            beerVersionRepository.save(verifiedVersion);
-            applyVerifiedVersionToCatalog(verifiedVersion);
+                BeerVersion verifiedVersion = new BeerVersion(
+                        version.id(),
+                        version.beerId(),
+                        version.authorId(),
+                        version.payload(),
+                        version.confirmVotes(),
+                        version.rejectVotes(),
+                        "VERIFIED",
+                        version.createdAt()
+                );
+                beerVersionRepository.save(verifiedVersion);
+                applyVerifiedVersionToCatalog(verifiedVersion);
 
-            log.info("Beer version manually verified by moderator",
-                    kv("event", "version_verification_completed"),
-                    kv("version_id", versionId.toString()),
-                    kv("beer_id", version.beerId().toString()),
-                    kv("previous_status", version.status()),
-                    kv("new_status", "VERIFIED"),
-                    kv("trigger", "MODERATOR_OVERRIDE"),
-                    kv("status", "200"));
+                LOG.info("Beer version manually verified by moderator",
+                        kv("event", "version_verification_completed"),
+                        kv("version_id", versionId.toString()),
+                        kv("beer_id", version.beerId().toString()),
+                        kv("previous_status", version.status()),
+                        kv("new_status", "VERIFIED"),
+                        kv("trigger", "MODERATOR_OVERRIDE"),
+                        kv("status", "200"));
 
-            return beerVersionMapper.toResponse(verifiedVersion);
+                return beerVersionMapper.toResponse(verifiedVersion);
+            });
         }
     }
 
+    /**
+     * Immediately marks a {@link BeerVersion} draft as {@code REJECTED} and transitions any
+     * still-{@code UNVERIFIED} parent beer into the moderation queue ({@code AC-013.2}).
+     *
+     * @param versionId version draft UUID
+     * @param request   optional moderator rejection reason payload
+     * @return updated {@link BeerVersionResponse}
+     * @throws ApiException with {@code 404 NOT_FOUND} if the version does not exist
+     */
     public synchronized BeerVersionResponse rejectBeerVersionByModerator(
             UUID versionId,
             BeerVersionRejectRequest request
     ) {
         synchronized (beerVersionRepository.getLockForVersion(versionId)) {
-            BeerVersion version = beerVersionRepository.findById(versionId)
-                    .orElseThrow(() -> new ApiException(
-                            HttpStatus.NOT_FOUND,
-                            "NOT_FOUND",
-                            "Resource requested at /beer-versions/" + versionId + "/reject was not found",
-                            List.of(new ErrorDetail("id", "Requested resource with the specified identifier was not found"))
-                    ));
+            return txExecutor.execute(() -> {
+                BeerVersion version = beerVersionRepository.findById(versionId)
+                        .orElseThrow(() -> {
+                            String issue = "Requested resource with the specified identifier was not found";
+                            return new ApiException(
+                                    HttpStatus.NOT_FOUND,
+                                    "NOT_FOUND",
+                                    "Resource requested at /beer-versions/" + versionId + "/reject was not found",
+                                    List.of(new ErrorDetail("id", issue))
+                            );
+                        });
 
-            BeerVersion rejectedVersion = new BeerVersion(
-                    version.id(),
-                    version.beerId(),
-                    version.authorId(),
-                    version.payload(),
-                    version.confirmVotes(),
-                    version.rejectVotes(),
-                    "REJECTED",
-                    version.createdAt()
-            );
-            beerVersionRepository.save(rejectedVersion);
+                BeerVersion rejectedVersion = new BeerVersion(
+                        version.id(),
+                        version.beerId(),
+                        version.authorId(),
+                        version.payload(),
+                        version.confirmVotes(),
+                        version.rejectVotes(),
+                        "REJECTED",
+                        version.createdAt()
+                );
+                beerVersionRepository.save(rejectedVersion);
 
-            beerRepository.findById(version.beerId()).ifPresent(beer -> {
-                if ("UNVERIFIED".equals(beer.status())) {
-                    Beer rejectedBeer = new Beer(
-                            beer.id(),
-                            beer.name(),
-                            beer.brewery(),
-                            beer.style(),
-                            beer.abv(),
-                            beer.beerType(),
-                            beer.description(),
-                            beer.country(),
-                            beer.imageUrl(),
-                            "REJECTED",
-                            beer.ratingAvg(),
-                            beer.reviewsCount(),
-                            beer.packagings(),
-                            beer.createdAt()
-                    );
-                    beerRepository.save(rejectedBeer);
-                }
+                beerRepository.findById(version.beerId()).ifPresent(beer -> {
+                    if ("UNVERIFIED".equals(beer.status())) {
+                        Beer rejectedBeer = new Beer(
+                                beer.id(),
+                                beer.name(),
+                                beer.brewery(),
+                                beer.style(),
+                                beer.abv(),
+                                beer.beerType(),
+                                beer.description(),
+                                beer.country(),
+                                beer.imageUrl(),
+                                "REJECTED",
+                                beer.ratingAvg(),
+                                beer.reviewsCount(),
+                                beer.packagings(),
+                                beer.createdAt()
+                        );
+                        beerRepository.save(rejectedBeer);
+                    }
+                });
+
+                LOG.info("Beer version manually rejected by moderator",
+                        kv("event", "version_verification_completed"),
+                        kv("version_id", versionId.toString()),
+                        kv("beer_id", version.beerId().toString()),
+                        kv("previous_status", version.status()),
+                        kv("new_status", "REJECTED"),
+                        kv("trigger", "MODERATOR_OVERRIDE"),
+                        kv("reason", request != null ? request.reason() : null),
+                        kv("status", "200"));
+
+                return beerVersionMapper.toResponse(rejectedVersion);
             });
-
-            log.info("Beer version manually rejected by moderator",
-                    kv("event", "version_verification_completed"),
-                    kv("version_id", versionId.toString()),
-                    kv("beer_id", version.beerId().toString()),
-                    kv("previous_status", version.status()),
-                    kv("new_status", "REJECTED"),
-                    kv("trigger", "MODERATOR_OVERRIDE"),
-                    kv("reason", request != null ? request.reason() : null),
-                    kv("status", "200"));
-
-            return beerVersionMapper.toResponse(rejectedVersion);
         }
     }
 
+    /**
+     * Lists paginated beers currently in {@code REJECTED} status awaiting moderator review
+     * ({@code AC-014.1}).
+     *
+     * @param page zero-based page index
+     * @param size page size (1..100)
+     * @return paginated {@link BeerPagedResponse} of queued beers
+     */
+    @Transactional(readOnly = true)
     public BeerPagedResponse listModerationQueue(int page, int size) {
-        if (!DomainValidationPredicates.IS_VALID_PAGE_INDEX.test(page)
-                || !DomainValidationPredicates.IS_VALID_PAGE_SIZE.test(size)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "BAD_REQUEST",
-                    "Invalid pagination parameters",
-                    List.of(new ErrorDetail("size", "Must be between 1 and 100"))
-            );
-        }
+        PaginationHelper.validate(page, size);
 
         List<BeerResponse> rejectedBeers = beerRepository.findByStatus("REJECTED").stream()
                 .map(beerMapper::toResponse)
@@ -215,6 +271,16 @@ public class ModerationService {
         return beerMapper.toPagedResponse(rejectedBeers, page, size);
     }
 
+    /**
+     * Resolves a queued beer product by either approving it to {@code VERIFIED} or permanently
+     * deleting it from the repository ({@code AC-014.2}).
+     *
+     * @param beerId  queued beer UUID
+     * @param request moderation decision payload ({@code APPROVE} or {@code PERMANENT_DELETE})
+     * @return {@link ModerationDecisionResponse} recording the applied decision and timestamp
+     * @throws ApiException with {@code 404 NOT_FOUND} if the beer does not exist,
+     *                      or {@code 422 UNPROCESSABLE_ENTITY} for unsupported decision values
+     */
     public synchronized ModerationDecisionResponse resolveModerationQueueItem(
             UUID beerId,
             ModerationDecisionRequest request
@@ -230,74 +296,56 @@ public class ModerationService {
             );
         }
 
-        Beer beer = beerRepository.findById(beerId)
-                .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "NOT_FOUND",
-                        "Resource requested at /moderation-items/" + beerId + "/decision was not found",
-                        List.of(new ErrorDetail("id", "Requested resource with the specified identifier was not found"))
-                ));
+        return txExecutor.execute(() -> {
+            Beer beer = beerRepository.findById(beerId)
+                    .orElseThrow(() -> {
+                        String issue = "Requested resource with the specified identifier was not found";
+                        return new ApiException(
+                                HttpStatus.NOT_FOUND,
+                                "NOT_FOUND",
+                                "Resource requested at /moderation-items/" + beerId + "/decision was not found",
+                                List.of(new ErrorDetail("id", issue))
+                        );
+                    });
 
-        if ("APPROVE".equals(request.decision())) {
-            Beer approvedBeer = new Beer(
-                    beer.id(),
-                    beer.name(),
-                    beer.brewery(),
-                    beer.style(),
-                    beer.abv(),
-                    beer.beerType(),
-                    beer.description(),
-                    beer.country(),
-                    beer.imageUrl(),
-                    "VERIFIED",
-                    beer.ratingAvg(),
-                    beer.reviewsCount(),
-                    beer.packagings(),
-                    beer.createdAt()
-            );
-            beerRepository.save(approvedBeer);
-        } else {
-            beerRepository.deletePermanently(beerId);
-            wishlistRepository.removeAllByBeer(beerId);
-        }
+            if ("APPROVE".equals(request.decision())) {
+                Beer approvedBeer = new Beer(
+                        beer.id(),
+                        beer.name(),
+                        beer.brewery(),
+                        beer.style(),
+                        beer.abv(),
+                        beer.beerType(),
+                        beer.description(),
+                        beer.country(),
+                        beer.imageUrl(),
+                        "VERIFIED",
+                        beer.ratingAvg(),
+                        beer.reviewsCount(),
+                        beer.packagings(),
+                        beer.createdAt()
+                );
+                beerRepository.save(approvedBeer);
+            } else {
+                beerRepository.deletePermanently(beerId);
+                wishlistRepository.removeAllByBeer(beerId);
+            }
 
-        Instant processedAt = Instant.now();
-        log.info("Moderation queue item resolved",
-                kv("event", "moderation_decision_processed"),
-                kv("beer_id", beerId.toString()),
-                kv("decision", request.decision()),
-                kv("comment", request.comment()),
-                kv("status", "200"));
+            Instant processedAt = Instant.now();
+            LOG.info("Moderation queue item resolved",
+                    kv("event", "moderation_decision_processed"),
+                    kv("beer_id", beerId.toString()),
+                    kv("decision", request.decision()),
+                    kv("comment", request.comment()),
+                    kv("status", "200"));
 
-        return new ModerationDecisionResponse(beerId, request.decision(), processedAt);
+            return new ModerationDecisionResponse(beerId, request.decision(), processedAt);
+        });
     }
 
     private void applyVerifiedVersionToCatalog(BeerVersion version) {
         beerRepository.findById(version.beerId()).ifPresent(existingBeer -> {
-            BeerVersionCreateRequest p = version.payload();
-            List<BeerPackaging> updatedPackagings = new ArrayList<>(existingBeer.packagings());
-            if (p != null && p.packagings() != null && !p.packagings().isEmpty()) {
-                for (BeerPackagingCreateRequest pkgReq : p.packagings()) {
-                    updatedPackagings.add(beerMapper.toPackagingEntity(existingBeer.id(), pkgReq));
-                }
-            }
-
-            Beer updatedBeer = new Beer(
-                    existingBeer.id(),
-                    p != null && p.name() != null ? p.name().trim() : existingBeer.name(),
-                    p != null && p.brewery() != null ? p.brewery().trim() : existingBeer.brewery(),
-                    p != null && p.style() != null ? p.style().trim() : existingBeer.style(),
-                    p != null && p.abv() != null ? p.abv() : existingBeer.abv(),
-                    p != null && p.beerType() != null ? p.beerType() : existingBeer.beerType(),
-                    p != null && p.description() != null ? p.description() : existingBeer.description(),
-                    p != null && p.country() != null ? p.country() : existingBeer.country(),
-                    p != null && p.imageUrl() != null ? p.imageUrl() : existingBeer.imageUrl(),
-                    "VERIFIED",
-                    existingBeer.ratingAvg(),
-                    existingBeer.reviewsCount(),
-                    List.copyOf(updatedPackagings),
-                    existingBeer.createdAt()
-            );
+            Beer updatedBeer = beerMapper.mergeWithVersionPayload(existingBeer, version.payload(), "VERIFIED");
             beerRepository.save(updatedBeer);
         });
     }

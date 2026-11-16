@@ -1,18 +1,16 @@
 package com.beertracker.service;
 
 import com.beertracker.dto.CollectionPagedResponse;
-import com.beertracker.dto.ErrorDetail;
 import com.beertracker.dto.TastedCollectionItemResponse;
-import com.beertracker.exception.ApiException;
 import com.beertracker.model.Beer;
 import com.beertracker.model.ConsumptionEntry;
 import com.beertracker.model.Review;
 import com.beertracker.repository.BeerRepository;
 import com.beertracker.repository.ConsumptionRepository;
 import com.beertracker.repository.ReviewRepository;
-import com.beertracker.validation.DomainValidationPredicates;
-import org.springframework.http.HttpStatus;
+import com.beertracker.validation.PaginationHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -22,13 +20,25 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * Service projecting a user's virtual {@code Tasted Collection} from append-only
+ * {@link ConsumptionEntry} records and active review ratings ({@code REQ-F-009}, {@code REQ-NF-005}).
+ */
 @Service
+@Transactional(readOnly = true)
 public class CollectionService {
 
     private final ConsumptionRepository consumptionRepository;
     private final BeerRepository beerRepository;
     private final ReviewRepository reviewRepository;
 
+    /**
+     * Constructs the collection projection service.
+     *
+     * @param consumptionRepository repository of consumption logs
+     * @param beerRepository        repository of catalog beers
+     * @param reviewRepository      repository of active user reviews
+     */
     public CollectionService(
             ConsumptionRepository consumptionRepository,
             BeerRepository beerRepository,
@@ -39,16 +49,17 @@ public class CollectionService {
         this.reviewRepository = reviewRepository;
     }
 
+    /**
+     * Builds a paginated list of unique beers tasted by the specified user, aggregated by
+     * total consumed volume, first/last consumption timestamps, and active personal rating.
+     *
+     * @param userId authenticated owner UUID
+     * @param page   zero-based page index
+     * @param size   page size (1..100)
+     * @return paginated {@link CollectionPagedResponse} ordered by most recent consumption
+     */
     public CollectionPagedResponse getTastedCollection(UUID userId, int page, int size) {
-        if (!DomainValidationPredicates.IS_VALID_PAGE_INDEX.test(page)
-                || !DomainValidationPredicates.IS_VALID_PAGE_SIZE.test(size)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "BAD_REQUEST",
-                    "Invalid pagination parameters",
-                    List.of(new ErrorDetail("size", "Must be between 1 and 100"))
-            );
-        }
+        PaginationHelper.validate(page, size);
 
         List<ConsumptionEntry> userEntries = consumptionRepository.findByUserId(userId);
         Map<UUID, List<ConsumptionEntry>> groupedByBeer = userEntries.stream()
@@ -91,18 +102,14 @@ public class CollectionService {
                 .sorted(Comparator.comparing(TastedCollectionItemResponse::lastConsumedAt).reversed())
                 .toList();
 
-        int totalElements = allItems.size();
-        int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / size);
-        int fromIndex = Math.min(page * size, totalElements);
-        int toIndex = Math.min(fromIndex + size, totalElements);
-        List<TastedCollectionItemResponse> pageItems = allItems.subList(fromIndex, toIndex);
+        PaginationHelper.PageSlice<TastedCollectionItemResponse> slice = PaginationHelper.slice(allItems, page, size);
 
         return new CollectionPagedResponse(
-                pageItems,
-                page,
-                size,
-                totalElements,
-                totalPages
+                slice.items(),
+                slice.page(),
+                slice.size(),
+                slice.totalElements(),
+                slice.totalPages()
         );
     }
 }

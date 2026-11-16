@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -52,7 +53,9 @@ class ReviewsAndWishlistIntegrationTest {
                 }
                 """.formatted(name, brewery, barcode);
 
+        String creatorToken = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "catalog@example.com");
         MvcResult result = mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", "Bearer " + creatorToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isCreated())
@@ -62,8 +65,8 @@ class ReviewsAndWishlistIntegrationTest {
     }
 
     @Test
-    @DisplayName("BDD-SCN-003 / REQ-F-008 / AC-008.1: POST /api/v1/beers/{id}/reviews without prior consumption is rejected with 403 ERR_CONSUMPTION_REQUIRED")
-    void shouldRejectReviewWithoutPriorConsumption_BddScn003() throws Exception {
+    @DisplayName("BDD-SCN-003 / REQ-F-008 / AC-008.1: Review without consumption returns 403")
+    void shouldRejectReviewWithoutPriorConsumptionBddScn003() throws Exception {
         JsonNode beer = createSampleBeer("Underwood Kyiv Lager", "Underwood Brewery", "4820202600111");
         String beerId = beer.get("id").asText();
         String token = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "critic@example.com");
@@ -86,7 +89,7 @@ class ReviewsAndWishlistIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-008 / AC-008.2: POST /api/v1/beers/{id}/reviews with rating not multiple of 0.5 returns 422 Unprocessable Entity")
+    @DisplayName("REQ-F-008 / AC-008.2: Review rating not multiple of 0.5 returns 422")
     void shouldReturn422WhenRatingStepIsInvalid() throws Exception {
         JsonNode beer = createSampleBeer("Mova Dark Stout", "Mova Brewing Co.", "4820202600018");
         String beerId = beer.get("id").asText();
@@ -126,7 +129,7 @@ class ReviewsAndWishlistIntegrationTest {
     }
 
     @Test
-    @DisplayName("REQ-F-008 / AC-008.3: Create (201), reject duplicate POST (409), update via PUT (200), and delete (204) review after consumption")
+    @DisplayName("REQ-F-008 / AC-008.3: Create (201), duplicate (409), update (200), delete (204)")
     void shouldCreateUpdateAndDeleteReviewAfterConsumption() throws Exception {
         JsonNode beer = createSampleBeer("Mova Dark Stout", "Mova Brewing Co.", "4820202600018");
         String beerId = beer.get("id").asText();
@@ -193,15 +196,20 @@ class ReviewsAndWishlistIntegrationTest {
                 .andExpect(jsonPath("$.rating").value(5.0))
                 .andExpect(jsonPath("$.review_text").value("Після повторної дегустації - оцінка максимальна!"));
 
-        // Delete review via DELETE -> 204 No Content
+        // Delete review via DELETE -> 204 No Content and resets beer rating_avg to null
         mockMvc.perform(delete("/api/v1/beers/" + beerId + "/reviews")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/beers/" + beerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reviews_count").value(0))
+                .andExpect(jsonPath("$.rating_avg").value(nullValue()));
     }
 
     @Test
-    @DisplayName("BDD-SCN-001 / REQ-F-009 / AC-009.1 & AC-009.2: Wishlist item is auto-removed on first consumption and added to Tasted Collection")
-    void shouldAutoRemoveFromWishlistAndAddToTastedCollectionUponConsumption_BddScn001() throws Exception {
+    @DisplayName("BDD-SCN-001 / REQ-F-009: Auto-remove from Wishlist and add to Tasted Collection")
+    void shouldAutoRemoveFromWishlistAndAddToTastedCollectionUponConsumptionBddScn001() throws Exception {
         JsonNode beer = createSampleBeer("Mova Dark Stout", "Mova Brewing Co.", "4820202600018");
         String beerId = beer.get("id").asText();
         String packagingId = beer.get("packagings").get(0).get("id").asText();
@@ -224,7 +232,7 @@ class ReviewsAndWishlistIntegrationTest {
                 .andExpect(jsonPath("$.items[0].beer_id").value(beerId))
                 .andExpect(jsonPath("$.total_elements").value(1));
 
-        // 3. Log consumption of 2 x 500ml cans -> 201 Created, auto-removes from Wishlist and adds to Collection
+        // 3. Log consumption of 2 x 500ml cans -> auto-removes from Wishlist and adds to Collection
         String consumedAt = Instant.now().minus(Duration.ofHours(1)).toString();
         String consumptionPayload = """
                 {

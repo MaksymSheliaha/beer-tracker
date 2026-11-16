@@ -10,6 +10,10 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * JPA entity representing a {@link Beer} saved in a user's personal {@code Wishlist}
+ * ({@code REQ-F-009}, {@code REQ-NF-005}).
+ */
 @Entity
 @Table(
         name = "wishlist_items",
@@ -33,6 +37,14 @@ public class WishlistItem {
     protected WishlistItem() {
     }
 
+    /**
+     * Constructs a {@link WishlistItem} entry.
+     *
+     * @param id      wishlist entry UUID
+     * @param userId  owner user UUID
+     * @param beerId  saved catalog beer UUID
+     * @param addedAt UTC timestamp when added
+     */
     public WishlistItem(
             UUID id,
             UUID userId,
@@ -95,8 +107,12 @@ public class WishlistItem {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof WishlistItem that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof WishlistItem that)) {
+            return false;
+        }
         return Objects.equals(id, that.id);
     }
 

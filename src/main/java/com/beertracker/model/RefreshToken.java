@@ -9,6 +9,10 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * JPA entity persisting single-use JWT Refresh Token records with expiration and revocation state
+ * ({@code REQ-NF-004}).
+ */
 @Entity
 @Table(name = "refresh_tokens")
 public class RefreshToken {
@@ -29,6 +33,14 @@ public class RefreshToken {
     protected RefreshToken() {
     }
 
+    /**
+     * Constructs a {@link RefreshToken} record.
+     *
+     * @param token     opaque refresh token value
+     * @param userId    owner user UUID
+     * @param expiresAt UTC expiration timestamp
+     * @param revoked   whether the token has already been rotated or invalidated
+     */
     public RefreshToken(
             String token,
             UUID userId,
@@ -91,8 +103,12 @@ public class RefreshToken {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof RefreshToken that)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof RefreshToken that)) {
+            return false;
+        }
         return Objects.equals(token, that.token);
     }
 

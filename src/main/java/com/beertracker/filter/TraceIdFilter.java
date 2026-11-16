@@ -15,18 +15,52 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.UUID;
 
+/**
+ * Servlet filter executed at highest precedence to initialize SLF4J MDC fields
+ * ({@code trace_id}, {@code client_ip}, {@code user_id}, {@code status}) and attach
+ * {@code X-Trace-Id} to every HTTP response ({@code REQ-NF-010}).
+ */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class TraceIdFilter extends OncePerRequestFilter {
 
-    private static final Logger log = LoggerFactory.getLogger(TraceIdFilter.class);
-
+    /**
+     * HTTP header carrying the distributed request correlation UUID.
+     */
     public static final String TRACE_ID_HEADER = "X-Trace-Id";
+
+    /**
+     * MDC key holding the request correlation UUID.
+     */
     public static final String MDC_TRACE_ID_KEY = "trace_id";
+
+    /**
+     * MDC key holding the final HTTP status code.
+     */
     public static final String MDC_STATUS_KEY = "status";
+
+    /**
+     * MDC key holding the authenticated user UUID or {@code anonymous}.
+     */
     public static final String MDC_USER_ID_KEY = "user_id";
+
+    /**
+     * MDC key holding the client remote IP address.
+     */
     public static final String MDC_CLIENT_IP_KEY = "client_ip";
 
+    private static final Logger LOG = LoggerFactory.getLogger(TraceIdFilter.class);
+
+    /**
+     * Populates request-scoped MDC diagnostic attributes, propagates {@code X-Trace-Id}
+     * on the HTTP response, logs completion status, and clears MDC upon return.
+     *
+     * @param request     incoming HTTP servlet request
+     * @param response    outgoing HTTP servlet response
+     * @param filterChain remaining servlet filter chain
+     * @throws ServletException if downstream request processing fails
+     * @throws IOException      if an I/O error occurs while handling the request
+     */
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -49,7 +83,12 @@ public class TraceIdFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             MDC.put(MDC_STATUS_KEY, String.valueOf(response.getStatus()));
-            log.info("HTTP {} {} completed with status {}", request.getMethod(), request.getRequestURI(), response.getStatus());
+            LOG.info(
+                    "HTTP {} {} completed with status {}",
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    response.getStatus()
+            );
             MDC.clear();
         }
     }

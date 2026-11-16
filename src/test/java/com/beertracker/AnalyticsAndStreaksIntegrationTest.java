@@ -1,5 +1,6 @@
 package com.beertracker;
 
+import com.beertracker.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
@@ -12,9 +13,12 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.UUID;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -33,8 +37,11 @@ class AnalyticsAndStreaksIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private UserRepository userRepository;
+
     @Test
-    @DisplayName("REQ-F-012 (AC-012.1, AC-012.2): Continuous streak across consecutive days in user's IANA timezone [00:00, 24:00)")
+    @DisplayName("REQ-F-012 (AC-012.1, AC-012.2): Continuous streak across consecutive days [00:00, 24:00)")
     void shouldCalculateContinuousStreakWithTimezoneDayBoundaries() throws Exception {
         ZoneId kyivZone = ZoneId.of("Europe/Kyiv");
         String token = registerAndLoginUser("streak.active@example.com", "Europe/Kyiv");
@@ -43,7 +50,7 @@ class AnalyticsAndStreaksIntegrationTest {
         String packagingId = ids[1];
 
         LocalDate todayKyiv = LocalDate.now(kyivZone);
-        // Log consumption 2 days ago at 23:55 Kyiv time, yesterday at 00:05 Kyiv time (just after midnight boundary), and today at 12:00 Kyiv time
+        // Log consumption 2 days ago at 23:55 Kyiv time, yesterday at 00:05 (after day boundary), and today at 00:01
         ZonedDateTime twoDaysAgoLate = todayKyiv.minusDays(2).atTime(23, 55).atZone(kyivZone);
         ZonedDateTime yesterdayJustAfterMidnight = todayKyiv.minusDays(1).atTime(0, 5).atZone(kyivZone);
         ZonedDateTime todayEarly = todayKyiv.atTime(0, 1).atZone(kyivZone);
@@ -71,7 +78,7 @@ class AnalyticsAndStreaksIntegrationTest {
         String packagingId = ids[1];
 
         LocalDate todayKyiv = LocalDate.now(kyivZone);
-        // 4 consecutive days ending 3 days ago (so yesterday and 2 days ago were skipped -> current_streak = 0, longest_streak = 4)
+        // 4 consecutive days ending 3 days ago -> current_streak = 0, longest_streak = 4
         for (int daysAgo = 6; daysAgo >= 3; daysAgo--) {
             ZonedDateTime timestamp = todayKyiv.minusDays(daysAgo).atTime(19, 30).atZone(kyivZone);
             logConsumption(token, beerId, packagingId, 1, timestamp.toInstant().toString());
@@ -130,7 +137,13 @@ class AnalyticsAndStreaksIntegrationTest {
                 .andExpect(jsonPath("$.hourly_profile[20].average_volume_ml").value(250.0));
     }
 
-    private void logConsumption(String token, String beerId, String packagingId, int quantity, String consumedAtIso) throws Exception {
+    private void logConsumption(
+            String token,
+            String beerId,
+            String packagingId,
+            int quantity,
+            String consumedAtIso
+    ) throws Exception {
         String payload = """
                 {
                   "beer_id": "%s",
@@ -160,6 +173,11 @@ class AnalyticsAndStreaksIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(registerPayload))
                 .andExpect(status().isCreated());
+
+        userRepository.findByEmail(email).ifPresent(user -> {
+            user.setCreatedAt(Instant.now().minus(Duration.ofDays(30)));
+            userRepository.saveAndFlush(user);
+        });
 
         String loginPayload = """
                 {
@@ -196,7 +214,9 @@ class AnalyticsAndStreaksIntegrationTest {
                 }
                 """.formatted(name, brewery, barcode);
 
+        String userToken = JwtTestTokenProvider.createUserToken(UUID.randomUUID(), "catalog@example.com");
         MvcResult res = mockMvc.perform(post("/api/v1/beers")
+                        .header("Authorization", "Bearer " + userToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(beerPayload))
                 .andExpect(status().isCreated())

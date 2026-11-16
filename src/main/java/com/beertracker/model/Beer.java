@@ -14,6 +14,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ * Canonical catalog entity representing a beer product ({@code PACKAGED} or {@code DRAFT})
+ * with lifecycle verification status, aggregated rating metrics, and associated packagings
+ * ({@code REQ-F-001}, {@code REQ-F-010}, {@code REQ-F-011}).
+ */
 @Entity
 @Table(name = "beers")
 public class Beer {
@@ -64,6 +69,27 @@ public class Beer {
     protected Beer() {
     }
 
+    /**
+     * Constructs a {@link Beer} catalog entity and defensively copies its packagings,
+     * releasing barcodes automatically when transitioning into {@code MERGED} or
+     * {@code PLACEHOLDER} status.
+     *
+     * @param id           stable beer UUID
+     * @param name         product name
+     * @param brewery      brewery name
+     * @param style        beer style
+     * @param abv          alcohol by volume percentage ({@code 0.0..100.0})
+     * @param beerType     product category ({@code PACKAGED} or {@code DRAFT})
+     * @param description  optional tasting/catalog description
+     * @param country      optional ISO 3166-1 alpha-2 country code
+     * @param imageUrl     optional label image URI
+     * @param status       lifecycle status ({@code UNVERIFIED}, {@code VERIFIED}, {@code REJECTED},
+     *                     {@code MERGED}, {@code PLACEHOLDER})
+     * @param ratingAvg    aggregated average rating from active reviews (nullable)
+     * @param reviewsCount number of active reviews
+     * @param packagings   list of physical packaging variants
+     * @param createdAt    UTC creation timestamp
+     */
     public Beer(
             UUID id,
             String name,
@@ -280,8 +306,12 @@ public class Beer {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Beer beer)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof Beer beer)) {
+            return false;
+        }
         return Objects.equals(id, beer.id);
     }
 
