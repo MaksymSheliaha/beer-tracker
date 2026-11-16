@@ -1,74 +1,40 @@
-# Підсумковий протокол RELEASE-GATE (Final Gate Audit Log & Decision)
+# FINAL-GATE: Рішення щодо фінального приймання та валідації проєкту
 
-**Специфікація вимог (SRS):** [spec/requirements.md](file:///D:/uni/4-year/ПІС/beer-tracker/spec/requirements.md) + [spec/srs_addendum_002.md](file:///D:/uni/4-year/ПІС/beer-tracker/spec/srs_addendum_002.md)  
-**Контракт API:** [api/openapi.yaml](file:///D:/uni/4-year/ПІС/beer-tracker/api/openapi.yaml)  
-**Матриця простежуваності:** [spec/traceability-matrix.md](file:///D:/uni/4-year/ПІС/beer-tracker/spec/traceability-matrix.md)  
-**Звіт комплексної верифікації:** [logs/verification-report.md](file:///D:/uni/4-year/ПІС/beer-tracker/logs/verification-report.md)  
-**Цільовий трекер:** GitHub Issues ([MaksymSheliaha/beer-tracker](https://github.com/MaksymSheliaha/beer-tracker/issues))  
-**Пов'язана задача Gate:** Issue [#40](https://github.com/MaksymSheliaha/beer-tracker/issues/40)  
+**Проєкт:** Beer Tracker Backend API (`com.beertracker`)  
+**Цільова версія / Git Tag:** `v1.0.0-r1` (гілка `dev`)  
+**Дата фінального перегляду:** 2026-11-16  
+**Посилання на базову специфікацію:** [`spec/SRS.md`](file:///D:/uni/4-year/ПІС/beer-tracker/spec/SRS.md), [`docs/srs_addendum.md`](file:///D:/uni/4-year/ПІС/beer-tracker/docs/srs_addendum.md), [`spec/srs_addendum_002.md`](file:///D:/uni/4-year/ПІС/beer-tracker/spec/srs_addendum_002.md), [`spec/initial_concept.md`](file:///D:/uni/4-year/ПІС/beer-tracker/spec/initial_concept.md).
 
 ---
 
-## 1. Аудит виконання всіх 38 тікетів плану (та адендуму SRS-ADD-002)
+## 1. Контрольний перелік критеріїв виходу `FINAL-GATE`
 
-Усі 38 базових задач плану (`#3`–`#40`) та додаткова задача керованої зміни специфікації (`#41`, `SRS-ADD-002` / `REQ-F-015`) виконані у суворій відповідності до методології **SDD + TDD (`RED -> GREEN -> REFACTOR`)**:
-
-| Етап / Домен | Тікети | Вимоги SRS | Тестовий клас | Статус |
-| :--- | :--- | :--- | :--- | :---: |
-| **Gate 0: План реалізації** | `#3` | `PLAN-GATE` | N/A | ✅ CLOSED |
-| **Інфраструктура та логування** | `#4`, `#5`, `#6`, `#7` | `REQ-NF-008`, `REQ-NF-010`, `REQ-NF-011` | `BeerTrackerApplicationTests` | ✅ CLOSED |
-| **Безпека та автентифікація** | `#8`, `#9` | `REQ-NF-004`, `REQ-NF-006` | `AuthIntegrationTest` | ✅ CLOSED |
-| **Каталог пива та дедуплікація** | `#10`, `#11`, `#12`, `#13` | `REQ-F-001`, `REQ-F-002`, `REQ-NF-001` | `BeerCatalogIntegrationTest` | ✅ CLOSED |
-| **Вікі-версіонування та голосування** | `#14`, `#15`, `#16`, `#17`, `#18`, `#19` | `REQ-F-003`, `REQ-F-004`, `REQ-F-005`, `REQ-NF-009` | `BeerVersionVotingIntegrationTest` | ✅ CLOSED |
-| **Журнал споживання (Append-Only)** | `#20`, `#21`, `#22`, `#23` | `REQ-F-006`, `REQ-F-007`, `REQ-NF-003`, `REQ-NF-005` | `ConsumptionLogIntegrationTest` | ✅ CLOSED |
-| **Відгуки, Колекція та Вішліст** | `#24`, `#25`, `#26`, `#27` | `REQ-F-008`, `REQ-F-009`, `REQ-NF-005`, `REQ-NF-007` | `ReviewsAndWishlistIntegrationTest` | ✅ CLOSED |
-| **Адміністрування, Злиття та Модерація** | `#28`, `#29`, `#30`, `#31`, `#34`, `#35`, `#36`, `#37` | `REQ-F-010`, `REQ-F-011`, `REQ-F-013`, `REQ-F-014`, `REQ-NF-007` | `AdminMergeAndModerationIntegrationTest` | ✅ CLOSED |
-| **Аналітика та Стріки** | `#32`, `#33` | `REQ-F-012`, `REQ-NF-002` | `AnalyticsAndStreaksIntegrationTest` | ✅ CLOSED |
-| **Адендум `SRS-ADD-002` (ABV Filter)** | `#41` | `REQ-F-015` (`BDD-SCN-006`) | `BeerCatalogIntegrationTest` | ✅ CLOSED |
-| **Актуалізація трасування та доків** | `#38` | `IEEE Std 830-1998` | N/A (`spec/traceability-matrix.md`) | ✅ CLOSED |
-| **Комплексна верифікація** | `#39` | `SRS Section 5.4` | Усі 8 тест-класів (34 тести) | ✅ CLOSED |
-| **Фінальний релізний шлюз** | `#40` | `RELEASE-GATE` | N/A (`logs/final-gate-decision.md`) | ✅ CLOSED |
+| № | Критерій `FINAL-GATE` | Фактичні докази | Статус |
+| :---: | :--- | :--- | :---: |
+| **1** | Відповідність конвенції оформлення та чистота статичного аналізу | [`.editorconfig`](file:///D:/uni/4-year/ПІС/beer-tracker/.editorconfig), [`config/checkstyle/checkstyle.xml`](file:///D:/uni/4-year/ПІС/beer-tracker/config/checkstyle/checkstyle.xml); `mvn checkstyle:check` $\rightarrow$ **`0` порушень** (`91` main + `10` test файлів). | **PASS** |
+| **2** | Термінологічна єдність із глосарієм предметної області | Звірено сутності, REST-ресурси, методи, логи й документацію з [`spec/domain_glossary.md`](file:///D:/uni/4-year/ПІС/beer-tracker/spec/domain_glossary.md); виправлено розбіжності та лог-подію `catalog_merge_executed`. | **PASS** |
+| **3** | Наявність і якість Javadoc-коментарів і згенерований довідник | Javadoc для всіх публічних контролерів, сервісів, маперів, репозиторіїв, моделей, утиліт і `35` DTO; `mvn javadoc:javadoc` (`doclint=all,-missing`) $\rightarrow$ `0` помилок, `220` HTML-сторінок у `target/reports/apidocs/index.html`. | **PASS** |
+| **4** | Повнота технічної, розгортальної та користувацької документації | Актуалізовано [`README.md`](file:///D:/uni/4-year/ПІС/beer-tracker/README.md), [`docs/architecture.md`](file:///D:/uni/4-year/ПІС/beer-tracker/docs/architecture.md), [`docs/api_design.md`](file:///D:/uni/4-year/ПІС/beer-tracker/docs/api_design.md), [`docs/user-guide.md`](file:///D:/uni/4-year/ПІС/beer-tracker/docs/user-guide.md). | **PASS** |
+| **5** | Перевірка документації реальним запуском, звіркою коду та UI | Зафіксовано у [`docs/doc-verification-report.md`](file:///D:/uni/4-year/ПІС/beer-tracker/docs/doc-verification-report.md): OpenAPI **28/28** операцій і **35/35** схем (1:1 з DTO), `Redocly` lint (`0` помилок), **39/39** живих HTTP/Swagger UI перевірок. | **PASS** |
+| **6** | Проходження всіх автоматизованих тестів | `mvn clean verify` (Surefire) $\rightarrow$ **44/44 тестів PASS** (`Failures: 0, Errors: 0, Skipped: 0`) у 9 тестових класах. | **PASS** |
+| **7** | Завершена матриця простежуваності та автоматичний аудит | [`spec/traceability-matrix.md`](file:///D:/uni/4-year/ПІС/beer-tracker/spec/traceability-matrix.md) (`27` рядків: 26 `REQ` + `UI-OPENAPI-001`) пройшла аудит із `0` порожніх комірок, `0` фантомних/пропущених ID (`53 AC`, `6 BDD`, `20 Mock`, `#3..#41`) та `0` тестів-сиріт (`44/44`). | **PASS** |
+| **8** | Прозоре документування відомих відхилень та обмежень | Чесно зафіксовані: (а) **відсутність навантажувальних тестів** (`REQ-NF-001..003`) у `README.md` та `docs/architecture.md`; (б) H2 In-Memory замість PostgreSQL/Testcontainers; (в) URI `image_url` без S3; (г) збереження `REJECTED` замість видалення чернеток-оновлень (`AC-005.2`); (ґ) незначні відмінності текстів OpenAPI/історичного `srs_addendum.md`. | **PASS** |
+| **9** | Фінальна людська валідація відносно [`spec/initial_concept.md`](file:///D:/uni/4-year/ПІС/beer-tracker/spec/initial_concept.md) | Технічне зіставлення у [`logs/sdd-cycle-summary.md`](file:///D:/uni/4-year/ПІС/beer-tracker/logs/sdd-cycle-summary.md) §3 підтверджує розв'язання всіх 4 напрямів задуму в межах MVP `v1.0.0-r1` (без NLP-аналізу текстів рецензій і без load-тестування). Фінальне приймальне рішення потребує підтвердження людини (`role:human`). | **READY FOR HUMAN SIGN-OFF** |
 
 ---
 
-## 2. Протокол верифікації (`mvn clean verify`)
+## 2. Рішення та застереження щодо поточного релізу (`v1.0.0-r1`)
 
-- **Команда:** `mvn clean verify`
-- **Статус збірки:** `BUILD SUCCESS` (Total time: `33.121 s`)
-- **Результати автоматизованого тестування:**
-  - `Tests run: 34, Failures: 0, Errors: 0, Skipped: 0` (**100% GREEN**)
-  - Покрито 100% функціональних (`REQ-F-001`..`REQ-F-015`) та нефункціональних (`REQ-NF-001`..`REQ-NF-011`) вимог.
-- **Перевірка структурованого JSON-логування (`logs/beer-tracker.json.log`):**
-  - Формат NDJSON відповідає схемі `REQ-NF-010` / `REQ-NF-011`.
-  - Усі записи містять обов'язковий наскрізний `trace_id` (UUID v4), `timestamp` (ISO-8601), `level`, `logger`, `event`, `status`.
-  - Чутливі поля (`password`, `password_hash`) ніде не витікають у відповіді API чи в журнали подій.
+1. **Автоматизована технічна верифікація (`Agent Gate`):** **APPROVED (PASSED)** — код, тести (`44/44`), стиль Checkstyle (`0`), Javadoc (`0`), живий Swagger UI/API прогін (`39/39`), документація й матриця простежуваності повністю узгоджені та відтворювані.
+2. **Обмеження випуску (зафіксовано явно):**
+   - Вимоги продуктивності **`REQ-NF-001`, `REQ-NF-002`, `REQ-NF-003` не перевірялися під навантаженням** — перед розгортанням у середовищі з високим навантаженням необхідно провести окремі benchmark-випробування (JMeter / k6 / Gatling) та підключити постійне сховище (PostgreSQL замість H2 In-Memory).
+3. **Необхідність нового SDD-циклу / адендуму:**
+   - Поточні відмінності не блокують закриття навчального індивідуального проєкту `v1.0.0-r1`, оскільки відомі обмеження явно задокументовані, а всі функціональні та безпекові сценарії працюють згідно з контрактом. Для production-переходу рекомендується окремий наступний SDD-цикл (`PostgreSQL + Liquibase + S3 + Load Benchmarks + NLP Review Analytics`).
 
 ---
 
-## 3. Протокол людської валідації (Human Validation Protocol)
+## 3. Підсумок фінальної валідації людиною (`role:human` Sign-Off)
 
-Для інтерактивної приймальної перевірки живого бекенду (`http://localhost:8080`) сформовано та перевірено 4 приймальні сценарії:
-1. **Сценарій 1 (`REQ-NF-004`, `REQ-NF-006`):** Реєстрація користувача (`POST /api/v1/auth/register` -> `201 Created`, без `password_hash`) та автентифікація (`POST /api/v1/auth/login` -> `200 OK`, отримання JWT `access_token` та `refresh_token`).
-2. **Сценарій 2 (`REQ-F-001`, `REQ-F-015` / `SRS-ADD-002`):** Створення пива в каталозі (`POST /api/v1/beers` -> `201 Created`) та фільтрація каталогу за діапазоном міцності (`GET /api/v1/beers?min_abv=5.0&max_abv=8.0` -> `200 OK`; `min_abv=9.0&max_abv=4.0` -> `400 Bad Request` з `INVALID_ABV_RANGE`).
-3. **Сценарій 3 (`REQ-F-006`, `REQ-F-007`):** Запис у незмінний журнал споживання (`POST /api/v1/consumption-entries` -> `201 Created`) та спроба модифікації запису через `PUT /api/v1/consumption-entries/{id}` -> суворе блокування `405 Method Not Allowed` із заголовком `Allow: GET`.
-4. **Сценарій 4 (`REQ-F-012`):** Отримання агрегованої погодинної аналітики (`GET /api/v1/analytics/consumption` -> `200 OK`, 24 слоти `hourly_profile`) та розрахунок стріків (`GET /api/v1/streaks` -> `200 OK`, `current_streak_days`, `longest_streak_days`).
-
----
-
-## 4. Архітектурний рефакторинг рівня збереження (Spring Data JPA + H2)
-
-- **Зміна внутрішньої архітектури без порушення контракту API:**
-  - Шар збереження даних переведено з `ConcurrentHashMap` на **Spring Data JPA (`Hibernate 6.6.13.Final`)** та реляційну базу даних **H2 (`jdbc:h2:mem:beertracker`)**.
-  - Моделі домену (`Beer`, `BeerPackaging`, `BeerVersion`, `VersionVote`, `ConsumptionEntry`, `RefreshToken`, `Review`, `User`, `WishlistItem`) перетворено на повноцінні JPA-сутності (`@Entity`, `@Table`, `@Id`, `@OneToMany` / `@ManyToOne`, `@Column(unique = true)`).
-  - Усі репозиторії переведено на інтерфейси `JpaRepository` (`8 JPA repository interfaces`).
-  - Регресійний прогін `mvn test` після рефакторингу: **`Tests run: 34, Failures: 0, Errors: 0, Skipped: 0` (100% GREEN)** без жодних змін у тестовому коді.
-
----
-
-## 5. Формальне рішення (RELEASE-GATE Decision)
-
-- [x] **GO (APPROVED):** Усі критерії якості виконано на 100%, трасування вимог повне, регресійні та приймальні тести зелені (`34/34`), зміну за адендумом `SRS-ADD-002` інтегровано. Систему **Beer Tracker Backend API v1.0** офіційно допущено до релізу.
-- [ ] **NO-GO (REJECTED):** Повернення на доопрацювання.
-
-**Дата та час затвердження:** 2026-11-10T21:14:30+02:00  
-**Підпис Gatekeeper:** Максим Шеляга (Lead QA & System Architect / Human Supervisor)
+- **Статус підпису:** Релізний коміт на гілці `dev` теговано **`v1.0.0-r1`** із зафіксованими результатами верифікації; **кінцеву валідацію задуму та підпис Gatekeeper виконує студент (людина)**:
+  - `[ ]` Підтверджую відповідність реалізованої системи початковому задуму ([`spec/initial_concept.md`](file:///D:/uni/4-year/ПІС/beer-tracker/spec/initial_concept.md)) та приймаю документовані обмеження (`H2`, неперевірене навантаження `REQ-NF-001..003`).
+  - **Gatekeeper (Student / Human Role):** *(до заповнення людиною під час приймання Лабораторної роботи №6)*
